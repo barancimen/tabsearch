@@ -1,0 +1,283 @@
+// End to end test: loads the unpacked extension into a real Chromium, opens
+// pages with known text, drives the side panel page and asserts on the index
+// and on the results the panel renders.
+//
+//   npm install && npx playwright install chromium && npm test
+import { chromium } from 'playwright'
+import http from 'node:http'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// Occurrences of "needle" per page, case insensitive:
+//   alpha 5 (3 in the body, 1 as "<needle>" text, 1 in an input value)
+//   beta 1, gamma 1 (inside "needlework", hidden div), delta 1 (uppercase only)
+const PAGES = {
+  '/alpha': `<!doctype html><html><head><title>Alpha Handbook</title></head><body>
+    <h1>Alpha</h1>
+    <p>The needle sits in the haystack. A second needle too. Third needle here.</p>
+    <p>Markup &lt;needle&gt; stays escaped.</p>
+    <input value="hidden needle in a field">
+  </body></html>`,
+  '/beta': `<!doctype html><html><head><title>Beta Report</title>
+    <meta name="description" content="A page about nothing in particular"></head>
+    <body><p>Only one needle on this page.</p></body></html>`,
+  '/gamma': `<!doctype html><html><head><title>Gamma Notes</title></head><body>
+    <p>No straw here at all.</p>
+    <script>var s = "needle inside a script tag"</script>
+    <style>/* needle inside a style tag */</style>
+    <div hidden>needlework in a hidden div</div>
+  </body></html>`,
+  '/delta': `<!doctype html><html><head><title>Delta Caps</title></head><body>
+    <p>NEEDLE in capitals of the alphabet.</p></body></html>`,
+}
+
+const srv = http.createServer((req, res) => {
+  const body = PAGES[req.url.split('?')[0]]
+  if (!body) {
+    res.writeHead(404)
+    return res.end('missing')
+  }
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+  res.end(body)
+})
+// dual stack so 127.0.0.1, localhost, foo.localhost and [::1] all reach it
+try {
+  await new Promise((r, j) => {
+    srv.once('error', j)
+    srv.listen(0, '::', r)
+  })
+} catch (e) {
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r))
+}
+const port = srv.address().port
+const origin = (h) => `http://${h}:${port}`
+const base = origin('127.0.0.1')
+
+let fails = 0
+let checks = 0
+const ok = (c, label, extra) => {
+  checks++
+  if (!c) {
+    fails++
+    console.log('FAIL ' + label + (extra ? ' :: ' + extra : ''))
+  }
+}
+
+const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'tts-prof-'))
+const EXT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const ctx = await chromium.launchPersistentContext(profile, {
+  channel: 'chromium',
+  headless: true,
+  args: [
+    `--disable-extensions-except=${EXT}`,
+    `--load-extension=${EXT}`,
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
+  ],
+})
+
+let sw = ctx.serviceWorkers()[0]
+if (!sw) sw = await ctx.waitForEvent('serviceworker', { timeout: 20000 })
+const id = new URL(sw.url()).host
+console.log('extension id: ' + id)
+ok(!!id, 'extension service worker registered')
+
+const open = async (p, host = '127.0.0.1') => {
+  const page = await ctx.newPage()
+  await page.goto(origin(host) + p, { waitUntil: 'load' })
+  return page
+}
+// four distinct hosts, all loopback, so the domain filter has something to bite on
+const alpha = await open('/alpha', '127.0.0.1')
+const beta = await open('/beta', 'localhost')
+const gamma = await open('/gamma', 'foo.localhost')
+const delta = await open('/delta', '[::1]')
+ok((await beta.title()) === 'Beta Report', 'localhost reaches the test server')
+ok((await gamma.title()) === 'Gamma Notes', 'foo.localhost resolves and loads')
+
+const panel = await ctx.newPage()
+await panel.goto(`chrome-extension://${id}/sidepanel.html`)
+const text = (sel) => panel.textContent(sel)
+
+const settle = async (q, dom) => {
+  await panel.bringToFront()
+  if (dom !== undefined) {
+    await panel.fill('#dom', dom)
+    await panel.waitForTimeout(300)
+  }
+  await panel.fill('#q', q)
+  await panel.waitForTimeout(500)
+  return {
+    count: await text('#count'),
+    titles: await panel.$$eval('.tabhead .title', (n) => n.map((x) => x.textContent)),
+    marks: await panel.$$eval('mark', (n) => n.length),
+    status: await text('#status'),
+  }
+}
+
+const p = (label, s) => console.log(label + ': ' + JSON.stringify(s))
+
+await panel.waitForFunction(
+  () => /not searchable/.test(document.querySelector('#status').textContent),
+  null,
+  { timeout: 30000, polling: 250 }
+)
+let s = { status: await text('#status') }
+p('index', s)
+ok(s.status === '4 tabs indexed, 2 not searchable', 'four http tabs indexed, blank and extension pages skipped', s.status)
+
+// --- unreadable schemes ---------------------------------------------------
+const blank = await open('/alpha')
+await blank.goto('data:text/html,<p>needle in a data url</p>', { waitUntil: 'load' })
+await panel.bringToFront()
+await panel.waitForTimeout(600)
+const ds = await text('#status')
+p('data url tab', { status: ds })
+ok(ds === '4 tabs indexed, 3 not searchable', 'data: url counted as not searchable', ds)
+const dh = await panel.evaluate(() => document.querySelector('#results').innerHTML)
+ok(!dh.includes('needle in a data url'), 'data: url text never indexed')
+await blank.close()
+await panel.bringToFront()
+await panel.waitForTimeout(400)
+
+// --- substring, case insensitive -----------------------------------------
+s = await settle('needle')
+p('substring', s)
+ok(s.count === '8 matches in 4 tabs', 'substring match count', s.count)
+ok(s.titles[0] === 'Alpha Handbook', 'busiest tab ranked first', JSON.stringify(s.titles))
+ok(s.marks === 8, 'all matches highlighted', String(s.marks))
+
+const html = await panel.innerHTML('#results')
+ok(html.includes('&lt;needle&gt;'), 'page angle brackets escaped in snippets')
+ok(!html.includes('<needle>'), 'no raw page markup injected')
+ok(!/inside a script tag|inside a style tag/.test(html), 'script and style text excluded')
+ok(html.includes('hidden needle in a field'), 'input values indexed')
+
+// --- match case -----------------------------------------------------------
+await panel.click('#cs')
+s = await settle('needle')
+p('case sensitive', s)
+ok(s.count === '7 matches in 3 tabs', 'caps-only tab dropped', s.count)
+ok(!s.titles.includes('Delta Caps'), 'Delta absent when matching case')
+
+// --- whole word -----------------------------------------------------------
+await panel.click('#ww')
+s = await settle('needle')
+p('whole word', s)
+ok(s.count === '6 matches in 2 tabs', 'needlework excluded by whole word', s.count)
+ok(s.titles.includes('Gamma Notes') === false, 'Gamma (needlework) dropped')
+
+// --- regex ----------------------------------------------------------------
+await panel.click('#cs')
+await panel.click('#ww')
+await panel.click('#re')
+s = await settle('n[a-z]+dle')
+p('regex', s)
+ok(s.count === '8 matches in 4 tabs', 'regex finds every variant', s.count)
+
+s = await settle('n[a-z+')
+ok(s.count === 'Invalid pattern', 'invalid regex reported in the count slot', s.count)
+ok((await text('#results')).includes('Invalid regular expression'), 'invalid regex explains itself in the pane')
+ok(/tabs indexed/.test(s.status), 'index status left untouched by a bad pattern', s.status)
+
+await panel.click('#re')
+
+// --- jump to the match ----------------------------------------------------
+s = await settle('haystack')
+ok(s.count === '1 matches in 1 tabs', 'narrow query', s.count)
+await panel.click('.hit >> nth=0')
+await panel.waitForTimeout(700)
+const active = await panel.evaluate(() => chrome.tabs.query({ active: true }).then((t) => (t[0] || {}).title))
+ok(active === 'Alpha Handbook', 'clicking a hit activates the owning tab', String(active))
+const sel = await alpha.evaluate(() => String(window.getSelection()))
+ok(sel.toLowerCase().includes('haystack'), 'match revealed in the page', JSON.stringify(sel))
+
+// --- reindex --------------------------------------------------------------
+await panel.bringToFront()
+await panel.click('#refresh')
+await panel.waitForFunction(
+  () => /not searchable/.test(document.querySelector('#status').textContent),
+  null,
+  { timeout: 30000, polling: 250 }
+)
+s = await settle('needle')
+p('after reindex', s)
+ok(s.count === '8 matches in 4 tabs', 'reindex restores full results', s.count)
+
+// --- domain filter --------------------------------------------------------
+s = await settle('needle', 'localhost')
+p('domain localhost', s)
+ok(s.count === '2 matches in 2 tabs on localhost', 'bare domain covers its subdomains', s.count)
+ok(!s.titles.includes('Alpha Handbook') && s.titles.includes('Gamma Notes'), 'only localhost tabs kept', JSON.stringify(s.titles))
+
+s = await settle('needle', 'foo.localhost')
+p('domain foo.localhost', s)
+ok(s.count === '1 matches in 1 tabs on foo.localhost', 'exact subdomain narrows it', s.count)
+ok(s.titles.length === 1 && s.titles[0] === 'Gamma Notes', 'single subdomain group', JSON.stringify(s.titles))
+
+s = await settle('needle', '127.0.0.1')
+ok(s.count === '5 matches in 1 tabs on 127.0.0.1', 'dotted quad matches only that host', s.count)
+
+s = await settle('needle', '[::1]')
+ok(s.count === '1 matches in 1 tabs on [::1]', 'ipv6 literal matches', s.count)
+
+s = await settle('needle', `http://127.0.0.1:${port}/alpha`)
+p('domain pasted url', s)
+ok(s.count === `5 matches in 1 tabs on 127.0.0.1:${port}`, 'pasted url normalises to host:port', s.count)
+
+s = await settle('needle', '*.foo.localhost')
+ok(s.count === '1 matches in 1 tabs on foo.localhost', 'wildcard prefix stripped', s.count)
+
+s = await settle('needle', 'nope.example')
+ok((await text('#results')).includes('No open tab matches nope.example.'), 'unknown domain says so', await text('#results'))
+
+s = await settle('haystack', 'localhost')
+ok((await text('#results')).includes('No matches in 2 tabs on localhost.'), 'in scope but no text match', await text('#results'))
+
+const suggestions = await panel.$$eval('#doms option', (n) => n.map((x) => x.value))
+p('suggestions', suggestions)
+ok(
+  suggestions.join(',') === '127.0.0.1,[::1],foo.localhost,localhost',
+  'datalist lists every distinct hostname, sorted',
+  suggestions.join(',')
+)
+
+s = await settle('needle', '')
+p('filter cleared', s)
+ok(s.count === '8 matches in 4 tabs', 'clearing the filter restores every tab', s.count)
+
+// --- new tab appears ------------------------------------------------------
+const extra = await open('/alpha')
+await panel.bringToFront()
+await panel.waitForTimeout(900)
+s = await settle('needle')
+ok(s.count === '13 matches in 5 tabs', 'newly opened tab added to the index', s.count)
+await extra.close()
+await panel.waitForTimeout(500)
+
+// --- navigation invalidates ----------------------------------------------
+await alpha.goto(base + '/gamma', { waitUntil: 'load' })
+await panel.bringToFront()
+await panel.waitForTimeout(900)
+s = await settle('haystack')
+ok(s.count === '0 matches' && s.titles.length === 0, 'navigated tab re-indexed, stale text gone', JSON.stringify(s))
+s = await settle('needlework')
+ok(s.count === '2 matches in 2 tabs', 'navigated tab contributes its new content', s.count)
+
+// --- closed tab -----------------------------------------------------------
+await delta.close()
+await panel.bringToFront()
+await panel.waitForTimeout(500)
+s = await settle('capitals')
+ok(s.count === '0 matches' && (await text('#results')).includes('No matches'), 'closed tab dropped from the index', s.count)
+
+console.log('---')
+console.log(checks - fails + '/' + checks + ' checks passed')
+await ctx.close()
+srv.close()
+try {
+  fs.rmSync(profile, { recursive: true, force: true })
+} catch (e) {}
+process.exit(fails ? 1 : 0)

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Tab Text Search</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header>
+      <div class="row">
+        <input
+          id="q"
+          class="box"
+          type="search"
+          placeholder="Search the text of all open tabs"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="refresh" type="button" title="Re-index every tab">Reindex</button>
+      </div>
+      <div class="row">
+        <button id="cs" class="opt" type="button" title="Match case">Aa</button>
+        <button id="ww" class="opt" type="button" title="Whole word">Word</button>
+        <button id="re" class="opt" type="button" title="Regular expression">.*</button>
+        <span id="count"></span>
+      </div>
+      <div class="row">
+        <input
+          id="dom"
+          class="box"
+          type="search"
+          list="doms"
+          placeholder="All domains, or filter to x.com"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <datalist id="doms"></datalist>
+      </div>
+      <div id="status"></div>
+    </header>
+    <main id="results"></main>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
