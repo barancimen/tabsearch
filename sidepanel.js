@@ -13,6 +13,8 @@ const PER_TAB = 5 // snippets shown per tab
 const MAX_GROUPS = 400 // tabs listed
 const PAD = 80 // snippet context chars
 const REFRESH_MS = 150 // repaints are coalesced to one per this interval
+const MIN_DOWNLOADED_TEXT = 200 // less than this in a downloaded page is an empty app shell
+const NOT_LOADED = 'Not loaded'
 
 const S = {
   cache: new Map(), // tabId -> record
@@ -65,6 +67,13 @@ function paintStatus(s) {
   BAD.hidden = true
 }
 
+// Wakes a suspended tab in place. It is read when it finishes loading.
+function load(t) {
+  S.failed.set(t.id, 'Loading…')
+  chrome.tabs.reload(t.id).catch(() => S.failed.set(t.id, NOT_LOADED)).finally(refresh)
+  refresh()
+}
+
 function whyNot(t) {
   return canInject(t.url) ? S.failed.get(t.id) || '' : 'Restricted by Chrome'
 }
@@ -76,11 +85,29 @@ function paintBad(bad) {
   if (key === S.badKey) return
   S.badKey = key
   BAD.textContent = ''
+  const asleep = bad.filter((t) => whyNot(t) === NOT_LOADED)
+  if (asleep.length) {
+    const bar = el('div', 'badbar')
+    const all = el('button', '', 'Load all (' + asleep.length + ')')
+    all.type = 'button'
+    all.addEventListener('click', () => asleep.forEach(load))
+    bar.append(all)
+    BAD.append(bar)
+  }
   for (const t of bad) {
     const row = el('div', 'tabhead')
     const title = el('span', 'title', t.title || t.url)
     title.title = t.url || ''
     row.append(favicon(t.favIconUrl), title, el('span', 'why', whyNot(t)))
+    if (whyNot(t) === NOT_LOADED) {
+      const btn = el('button', '', 'Load')
+      btn.type = 'button'
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        load(t)
+      })
+      row.append(btn)
+    }
     row.addEventListener('click', () => focusTab({ windowId: t.windowId, tabId: t.id }))
     BAD.append(row)
   }
@@ -150,18 +177,19 @@ function domMatch(rec, f) {
 }
 
 /* Runs inside each page and each of its frames. Self contained. */
-function extract() {
+function extract(doc = document) {
   const parts = []
-  if (document.title) parts.push(document.title)
-  const meta = document.querySelector('meta[name="description"]')
+  let bodyLength = 0
+  if (doc.title) parts.push(doc.title)
+  const meta = doc.querySelector('meta[name="description"]')
   if (meta && meta.content) parts.push(meta.content)
-  if (document.body) {
+  if (doc.body) {
     const SKIP = 'script,style,noscript,template'
     const skip = new Set(SKIP.split(','))
     // Elements inside a skipped element are rare, and only they need the slow ancestor check.
-    const nested = document.body.querySelector('script *,style *,noscript *,template *')
-    const walker = document.createTreeWalker(
-      document.body,
+    const nested = doc.body.querySelector('script *,style *,noscript *,template *')
+    const walker = doc.createTreeWalker(
+      doc.body,
       NodeFilter.SHOW_TEXT | NodeFilter.SHOW_CDATA_SECTION
     )
     const chunks = []
@@ -171,9 +199,10 @@ function extract() {
       if (nested ? !p.closest(SKIP) : !skip.has(p.localName)) chunks.push(n.data)
     }
     const t = chunks.join('').replace(/\s+/g, ' ').trim()
+    bodyLength = t.length
     if (t) parts.push(t)
   }
-  for (const f of document.querySelectorAll('input,textarea')) {
+  for (const f of doc.querySelectorAll('input,textarea')) {
     if (f.type === 'password') continue
     const v = f.value
     if (typeof v === 'string' && v) parts.push(v)
@@ -182,7 +211,8 @@ function extract() {
     url: location.href,
     text: parts.join('\n'),
     // true in Chrome's viewer and in viewers that sit on top of it, like Scholar's
-    pdf: document.contentType === 'application/pdf',
+    pdf: doc.contentType === 'application/pdf',
+    bodyLength,
   }
 }
 
@@ -199,7 +229,7 @@ function download(url) {
     xhr.open('GET', url)
     xhr.responseType = 'arraybuffer'
     xhr.withCredentials = true
-    xhr.onload = () => (xhr.status < 400 ? resolve(xhr.response) : reject(new Error(xhr.status)))
+    xhr.onload = () => (xhr.status < 400 ? resolve(xhr) : reject(new Error(xhr.status)))
     xhr.onerror = () => reject(new Error('network'))
     xhr.send()
   })
@@ -218,11 +248,10 @@ function loadPdfjs() {
   return pdfjs
 }
 
-async function readPdf(url) {
-  const data = new Uint8Array(await download(url))
+async function parsePdf(buffer) {
   const { lib, worker } = await loadPdfjs()
   const task = lib.getDocument({
-    data,
+    data: new Uint8Array(buffer),
     worker,
     cMapUrl: chrome.runtime.getURL('vendor/pdfjs/cmaps/'),
     cMapPacked: true,
@@ -244,8 +273,80 @@ async function readPdf(url) {
   }
 }
 
+function withTitle(t, body) {
+  return t.title ? t.title + '\n' + body : body
+}
+
+function isAsleep(t) {
+  return t.discarded || t.status === 'unloaded'
+}
+
+function decode(xhr) {
+  const head = new TextDecoder('latin1').decode(xhr.response.slice(0, 2048))
+  const re = /charset=["']?([\w-]+)/i
+  const m = re.exec(xhr.getResponseHeader('content-type') || '') || re.exec(head)
+  try {
+    return new TextDecoder(m ? m[1] : 'utf-8').decode(xhr.response)
+  } catch (e) {
+    return new TextDecoder().decode(xhr.response)
+  }
+}
+
+function saveTab(t, text) {
+  const rec = {
+    tabId: t.id,
+    windowId: t.windowId,
+    index: t.index || 0,
+    title: t.title || '',
+    url: t.url || '',
+    fav: t.favIconUrl || '',
+    ...hostsOf(t.url),
+    text,
+    hits: 0,
+  }
+  S.cache.set(t.id, rec)
+  S.failed.delete(t.id)
+  if (!t.incognito) dbPut(rec)
+}
+
+// A suspended tab has no page to inject into, so download its URL instead. This
+// does not wake it. Pages built by JavaScript come back as an empty shell.
+async function readAsleep(t) {
+  let xhr
+  try {
+    xhr = await download(t.url)
+  } catch (e) {
+    forget(t.id, NOT_LOADED)
+    return
+  }
+  const type = xhr.getResponseHeader('content-type') || ''
+  const magic = new TextDecoder('latin1').decode(xhr.response.slice(0, 5))
+  if (type.includes('application/pdf') || magic === '%PDF-') {
+    try {
+      const body = await parsePdf(xhr.response)
+      if (body) saveTab(t, withTitle(t, body))
+      else forget(t.id, 'No text found')
+    } catch (e) {
+      forget(t.id, 'PDF could not be read')
+    }
+    return
+  }
+  const redirected = hostsOf(xhr.responseURL).hostname !== hostsOf(t.url).hostname
+  if (redirected || (type && !/html|xml|text/i.test(type))) {
+    forget(t.id, NOT_LOADED)
+    return
+  }
+  const v = extract(new DOMParser().parseFromString(decode(xhr), 'text/html'))
+  if (v.bodyLength < MIN_DOWNLOADED_TEXT) forget(t.id, NOT_LOADED)
+  else saveTab(t, v.text)
+}
+
 async function readTab(t) {
   if (t.id == null || !canInject(t.url)) return
+  if (isAsleep(t)) {
+    if (!S.cache.has(t.id)) await readAsleep(t)
+    return
+  }
   try {
     const res = await chrome.scripting.executeScript({
       target: { tabId: t.id, allFrames: true },
@@ -257,8 +358,8 @@ async function readTab(t) {
         const v = r && r.result
         if (!v || !v.pdf) return v && v.text
         try {
-          const body = await readPdf(v.url)
-          return body && (t.title ? t.title + '\n' + body : body)
+          const body = await parsePdf((await download(v.url)).response)
+          return body && withTitle(t, body)
         } catch (e) {
           pdfFailed = true
         }
@@ -269,22 +370,9 @@ async function readTab(t) {
       forget(t.id, pdfFailed ? 'PDF could not be read' : 'No text found')
       return
     }
-    const rec = {
-      tabId: t.id,
-      windowId: t.windowId,
-      index: t.index || 0,
-      title: t.title || '',
-      url: t.url || '',
-      fav: t.favIconUrl || '',
-      ...hostsOf(t.url),
-      text,
-      hits: 0,
-    }
-    S.cache.set(t.id, rec)
-    S.failed.delete(t.id)
-    if (!t.incognito) dbPut(rec)
+    saveTab(t, text)
   } catch (e) {
-    forget(t.id, t.discarded || t.status === 'unloaded' ? 'Not loaded' : 'Could not be read')
+    forget(t.id, 'Could not be read')
   }
 }
 
@@ -329,13 +417,15 @@ async function indexAll(full) {
   if (S.indexing) return
   S.indexing = true
   const run = ++S.run
-  if (full) {
-    S.cache.clear()
-    S.failed.clear()
-  }
   const tabs = (await chrome.tabs.query({})).filter((t) => t.id != null)
   const targets = tabs.filter((t) => canInject(t.url))
-  const todo = full ? targets : await restore(targets)
+  if (full) {
+    // a suspended tab cannot be read again, so its text is kept
+    const asleep = new Set(tabs.filter(isAsleep).map((t) => t.id))
+    for (const id of S.cache.keys()) if (!asleep.has(id)) S.cache.delete(id)
+    S.failed.clear()
+  }
+  const todo = full ? targets.filter((t) => !S.cache.has(t.id)) : await restore(targets)
   if (run !== S.run) return
   S.done = 0
   S.total = todo.length
@@ -609,7 +699,7 @@ $('#refresh').addEventListener('click', () => {
 })
 
 document.addEventListener('keydown', (e) => {
-  if (e.target === DOMAIN || e.target.closest('#status')) return
+  if (e.target === DOMAIN || e.target.closest('#status, #bad')) return
   if (e.key === 'Enter' && S.flat.length) {
     e.preventDefault()
     jump(S.sel >= 0 ? S.sel : 0)
@@ -635,6 +725,21 @@ chrome.tabs.onUpdated.addListener((id, info, tab) => {
 chrome.tabs.onRemoved.addListener((id) => {
   S.cache.delete(id)
   S.failed.delete(id)
+  refresh()
+})
+
+// Chrome gives a tab a new id when it suspends it.
+chrome.tabs.onReplaced.addListener((added, removed) => {
+  const rec = S.cache.get(removed)
+  if (rec) {
+    S.cache.delete(removed)
+    rec.tabId = added
+    S.cache.set(added, rec)
+  }
+  if (S.failed.has(removed)) {
+    S.failed.set(added, S.failed.get(removed))
+    S.failed.delete(removed)
+  }
   refresh()
 })
 

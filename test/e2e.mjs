@@ -31,6 +31,12 @@ const PAGES = {
   </body></html>`,
   '/delta': `<!doctype html><html><head><title>Delta Caps</title></head><body>
     <p>NEEDLE in capitals of the alphabet.</p></body></html>`,
+  '/sleepy': `<!doctype html><title>Sleepy</title><body><p>wasreadbeforesleep text</p></body>`,
+  '/article': `<!doctype html><title>Article</title><body><p>neverreadarticle ${'words of a server rendered page '.repeat(20)}</p></body>`,
+  '/shell': `<!doctype html><title>Shell One</title><body><div id="root"></div>
+    <script>root.textContent = ['shell', 'one', 'rendered'].join('')</script></body>`,
+  '/shell2': `<!doctype html><title>Shell Two</title><body><div id="root"></div>
+    <script>root.textContent = ['shell', 'two', 'rendered'].join('')</script></body>`,
   '/long': `<!doctype html><html><head><title>Long Page</title></head><body>
     <p>${'filler '.repeat(50000)} bodytailmarker</p>
     <input value="${'filler '.repeat(5000)} fieldtailmarker">
@@ -421,6 +427,102 @@ ok(await panel.isHidden('#bad'), 'toggle collapses the list')
 await paper.close()
 await scan.close()
 await corrupt.close()
+
+// --- suspended tabs -------------------------------------------------------
+const discard = (sub) =>
+  sw.evaluate(async (sub) => {
+    const tabs = await chrome.tabs.query({})
+    const t = tabs.find((x) => x.url.endsWith(sub))
+    return (await chrome.tabs.discard(t.id)).discarded
+  }, sub)
+const tabInfo = (sub) =>
+  sw.evaluate(async (sub) => {
+    const tabs = await chrome.tabs.query({})
+    const t = tabs.find((x) => x.url.endsWith(sub))
+    return { discarded: t.discarded, status: t.status, active: t.active }
+  }, sub)
+const whyRows = () => panel.$$eval('#bad .tabhead', (n) => n.map((x) => x.textContent))
+
+await open('/sleepy')
+await panel.bringToFront()
+await panel.waitForTimeout(900)
+s = await settle('wasreadbeforesleep')
+ok(s.count === '1 matches in 1 tabs', 'tab indexed while awake', s.count)
+ok(await discard('/sleepy'), 'tab suspended')
+await panel.waitForTimeout(500)
+s = await settle('wasreadbeforesleep')
+ok(s.count === '1 matches in 1 tabs', 'text survives suspension with the panel open', s.count)
+await reopen()
+s = await settle('wasreadbeforesleep')
+ok(s.count === '1 matches in 1 tabs', 'text survives suspension across a panel reopen', s.count)
+await panel.click('#refresh')
+await panel.waitForFunction(
+  () => /not searchable/.test(document.querySelector('#status').textContent),
+  null,
+  { timeout: 30000, polling: 100 }
+)
+s = await settle('wasreadbeforesleep')
+ok(s.count === '1 matches in 1 tabs', 'reindex keeps the text of a suspended tab', s.count)
+ok((await tabInfo('/sleepy')).discarded, 'reindex did not wake the tab')
+
+// opened and suspended while the panel is closed, so never read
+await panel.goto('about:blank')
+await open('/article')
+await open('/shell')
+await open('/shell2')
+const again = await openPdf('/paper?asleep')
+await again.waitForTimeout(800)
+await panel.bringToFront()
+await discard('/article')
+await discard('/shell')
+await discard('/shell2')
+await discard('/paper?asleep')
+await panel.waitForTimeout(400)
+await reopen()
+await panel.waitForFunction(() => S.failed.size >= 2 && !S.indexing, null, { timeout: 30000, polling: 100 })
+s = await settle('neverreadarticle')
+ok(s.count === '1 matches in 1 tabs', 'never read suspended page found by download', s.count)
+ok((await tabInfo('/article')).discarded, 'download did not wake the page')
+s = await settle('pdfsecondpagemarker')
+ok(s.count === '1 matches in 1 tabs', 'never read suspended pdf found by download', s.count)
+ok((await tabInfo('/paper?asleep')).discarded, 'download did not wake the pdf')
+s = await settle('shelloneRendered'.toLowerCase())
+ok(s.count === '0 matches', 'empty app shell not indexed', s.count)
+
+await settle('')
+await panel.waitForTimeout(300)
+await panel.click('#status button')
+await panel.waitForTimeout(200)
+let rowsNow = await whyRows()
+p('suspended rows', rowsNow)
+ok(rowsNow.filter((r) => r.includes('Not loaded')).length === 2, 'both shells listed as not loaded', JSON.stringify(rowsNow))
+ok((await text('#bad .badbar button')) === 'Load all (2)', 'load all shows how many', await text('#bad .badbar button'))
+await panel.locator('#bad .tabhead', { hasText: 'Shell One' }).locator('button').click()
+await panel.waitForFunction(
+  () => [...S.cache.values()].some((r) => r.text.includes('shellonerendered')),
+  null,
+  { timeout: 20000, polling: 100 }
+)
+const one = await tabInfo('/shell')
+ok(!one.discarded && !one.active, 'load wakes the tab without switching to it', JSON.stringify(one))
+await panel.waitForTimeout(400)
+rowsNow = await whyRows()
+ok(rowsNow.filter((r) => r.includes('Not loaded')).length === 1, 'loaded row leaves the list', JSON.stringify(rowsNow))
+s = await settle('shellonerendered')
+ok(s.count === '1 matches in 1 tabs', 'loaded tab is searchable', s.count)
+
+await panel.locator('#bad .badbar button').click()
+await panel.waitForFunction(
+  () => [...S.cache.values()].some((r) => r.text.includes('shelltworendered')),
+  null,
+  { timeout: 20000, polling: 100 }
+)
+s = await settle('shelltworendered')
+ok(s.count === '1 matches in 1 tabs', 'load all wakes the remaining tabs', s.count)
+await panel.waitForTimeout(300)
+rowsNow = await whyRows()
+ok(!rowsNow.some((r) => r.includes('Not loaded')), 'no not-loaded rows left', JSON.stringify(rowsNow))
+ok((await panel.locator('#bad .badbar').count()) === 0, 'load all goes away with nothing left to load')
 
 console.log('---')
 console.log(checks - fails + '/' + checks + ' checks passed')

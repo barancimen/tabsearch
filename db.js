@@ -38,6 +38,18 @@ function dbDel(id) {
   return dbTx('readwrite', (s) => s.delete(id)).catch(() => {})
 }
 
+function dbMove(from, to) {
+  return dbTx('readwrite', (s) => {
+    const get = s.get(from)
+    get.onsuccess = () => {
+      if (!get.result) return
+      s.put({ ...get.result, tabId: to })
+      s.delete(from)
+    }
+    return get
+  }).catch(() => {})
+}
+
 function dbClear() {
   return dbTx('readwrite', (s) => s.clear()).catch(() => {})
 }

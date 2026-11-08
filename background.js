@@ -23,3 +23,8 @@ chrome.tabs.onUpdated.addListener((id, info) => {
 chrome.tabs.onRemoved.addListener((id) => {
   dbDel(id)
 })
+
+// Chrome gives a tab a new id when it suspends it.
+chrome.tabs.onReplaced.addListener((added, removed) => {
+  dbMove(removed, added)
+})

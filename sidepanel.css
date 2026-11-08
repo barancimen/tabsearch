@@ -150,6 +150,16 @@ button.opt.on {
   color: var(--dim);
 }
 
+#bad button {
+  flex: none;
+  padding: 0 6px;
+}
+
+#bad .badbar {
+  padding: 2px 4px 4px;
+  text-align: right;
+}
+
 main {
   flex: 1;
   overflow: auto;
