@@ -46,20 +46,7 @@ const PAGES = {
   </body></html>`,
 }
 
-// One text string per page. An empty string makes a page with no text on it.
-function pdf(pages) {
-  const objs = ['<</Type/Catalog/Pages 2 0 R>>', '']
-  const kids = []
-  const font = 3 + pages.length * 2
-  pages.forEach((text, i) => {
-    const page = 3 + i * 2
-    kids.push(page + ' 0 R')
-    objs.push(`<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 ${font} 0 R>>>>/Contents ${page + 1} 0 R>>`)
-    const c = text ? `BT /F1 18 Tf 72 700 Td (${text}) Tj ET` : ''
-    objs.push(`<</Length ${c.length}>>\nstream\n${c}\nendstream`)
-  })
-  objs[1] = `<</Type/Pages/Kids[${kids.join(' ')}]/Count ${pages.length}>>`
-  objs.push('<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>')
+function pdfFile(objs) {
   let out = '%PDF-1.4\n'
   const offs = objs.map((b, i) => {
     const at = out.length
@@ -72,11 +59,44 @@ function pdf(pages) {
   return out + `trailer\n<</Size ${objs.length + 1}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF\n`
 }
 
+const stream = (c) => `<</Length ${c.length}>>\nstream\n${c}\nendstream`
+
+// Type3 font whose glyph "a" cannot be built, which makes pdf.js log a warning.
+function brokenType3(text) {
+  return pdfFile([
+    '<</Type/Catalog/Pages 2 0 R>>',
+    '<</Type/Pages/Kids[3 0 R]/Count 1>>',
+    '<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 5 0 R>>>>/Contents 4 0 R>>',
+    stream(`BT /F1 18 Tf 72 700 Td (${text}) Tj ET`),
+    '<</Type/Font/Subtype/Type3/FontBBox[0 0 750 750]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</a 6 0 R/b 7 0 R>>' +
+      '/Encoding<</Type/Encoding/Differences[97/a/b]>>/FirstChar 97/LastChar 98/Widths[500 500]>>',
+    stream('500 0 d0 /Missing Do'),
+    stream('500 0 d0 0 0 100 100 re f'),
+  ])
+}
+
+// One text string per page. An empty string makes a page with no text on it.
+function pdf(pages) {
+  const objs = ['<</Type/Catalog/Pages 2 0 R>>', '']
+  const kids = []
+  const font = 3 + pages.length * 2
+  pages.forEach((text, i) => {
+    const page = 3 + i * 2
+    kids.push(page + ' 0 R')
+    objs.push(`<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 ${font} 0 R>>>>/Contents ${page + 1} 0 R>>`)
+    objs.push(stream(text ? `BT /F1 18 Tf 72 700 Td (${text}) Tj ET` : ''))
+  })
+  objs[1] = `<</Type/Pages/Kids[${kids.join(' ')}]/Count ${pages.length}>>`
+  objs.push('<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>')
+  return pdfFile(objs)
+}
+
 // No .pdf in the paths: detection must not depend on the URL.
 const PDFS = {
   '/paper': pdf(['first page of the paper', 'pdfsecondpagemarker on page two']),
   '/scan': pdf(['']),
   '/corrupt': '%PDF-1.4\nthis is not really a pdf',
+  '/type3': brokenType3('abbabaabab'),
 }
 
 const srv = http.createServer((req, res) => {
@@ -149,6 +169,10 @@ ok((await beta.title()) === 'Beta Report', 'localhost reaches the test server')
 ok((await gamma.title()) === 'Gamma Notes', 'foo.localhost resolves and loads')
 
 const panel = await ctx.newPage()
+const consoleProblems = []
+panel.on('console', (m) => {
+  if (m.type() !== 'log' && m.type() !== 'info') consoleProblems.push(m.text())
+})
 await panel.goto(`chrome-extension://${id}/sidepanel.html`)
 const text = (sel) => panel.textContent(sel)
 
@@ -427,6 +451,19 @@ ok(await panel.isHidden('#bad'), 'toggle collapses the list')
 await paper.close()
 await scan.close()
 await corrupt.close()
+
+const t3 = await openPdf('/type3')
+await panel.bringToFront()
+await panel.waitForFunction(
+  () => [...S.cache.values()].some((r) => r.text.includes('abbabaabab')),
+  null,
+  { timeout: 30000, polling: 200 }
+)
+s = await settle('abbabaabab')
+ok(s.count === '1 matches in 1 tabs', 'pdf with a broken Type3 glyph still gives its text', s.count)
+ok(!consoleProblems.some((t) => t.includes('Type3')), 'pdf.js warnings stay out of the console', JSON.stringify(consoleProblems))
+ok(!consoleProblems.some((t) => t.includes('local resource')), 'no refused favicon loads', JSON.stringify(consoleProblems))
+await t3.close()
 
 // --- suspended tabs -------------------------------------------------------
 const discard = (sub) =>

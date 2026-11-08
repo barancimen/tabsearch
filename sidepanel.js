@@ -53,7 +53,8 @@ function el(tag, cls, text) {
 }
 
 function favicon(src) {
-  if (!src) return el('span', 'fav ph')
+  // chrome:// and other extensions' icons are refused and only log errors
+  if (!/^(https?|data):/.test(src || '')) return el('span', 'fav ph')
   const img = new Image()
   img.className = 'fav'
   img.referrerPolicy = 'no-referrer'
@@ -242,7 +243,7 @@ function loadPdfjs() {
   if (!pdfjs) {
     pdfjs = import('./vendor/pdfjs/pdf.min.mjs').then((lib) => {
       lib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('vendor/pdfjs/pdf.worker.min.mjs')
-      return { lib, worker: new lib.PDFWorker() }
+      return { lib, worker: new lib.PDFWorker({ verbosity: lib.VerbosityLevel.ERRORS }) }
     })
   }
   return pdfjs
@@ -256,7 +257,7 @@ async function parsePdf(buffer) {
     cMapUrl: chrome.runtime.getURL('vendor/pdfjs/cmaps/'),
     cMapPacked: true,
     isEvalSupported: false,
-    verbosity: 0,
+    verbosity: lib.VerbosityLevel.ERRORS,
   })
   try {
     const doc = await task.promise
