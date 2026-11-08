@@ -109,9 +109,21 @@ function extract() {
   const meta = document.querySelector('meta[name="description"]')
   if (meta && meta.content) parts.push(meta.content)
   if (document.body) {
-    const clone = document.body.cloneNode(true)
-    for (const n of clone.querySelectorAll('script,style,noscript,template')) n.remove()
-    const t = (clone.textContent || '').replace(/\s+/g, ' ').trim()
+    const SKIP = 'script,style,noscript,template'
+    const skip = new Set(SKIP.split(','))
+    // Elements inside a skipped element are rare, and only they need the slow ancestor check.
+    const nested = document.body.querySelector('script *,style *,noscript *,template *')
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_CDATA_SECTION
+    )
+    const chunks = []
+    let n
+    while ((n = walker.nextNode())) {
+      const p = n.parentElement
+      if (nested ? !p.closest(SKIP) : !skip.has(p.localName)) chunks.push(n.data)
+    }
+    const t = chunks.join('').replace(/\s+/g, ' ').trim()
     if (t) parts.push(t)
   }
   for (const f of document.querySelectorAll('input,textarea')) {

@@ -34,6 +34,9 @@ const PAGES = {
   '/long': `<!doctype html><html><head><title>Long Page</title></head><body>
     <p>${'filler '.repeat(50000)} bodytailmarker</p>
     <input value="${'filler '.repeat(5000)} fieldtailmarker">
+    <svg><style>svgskipmarker</style></svg>
+    <noscript id="ns"></noscript>
+    <script>ns.append(Object.assign(document.createElement('b'), { textContent: ['nested', 'skipmarker'].join('') }))</script>
   </body></html>`,
 }
 
@@ -285,6 +288,10 @@ s = await settle('bodytailmarker')
 ok(s.count === '1 matches in 1 tabs', 'text past 200,000 chars indexed', s.count)
 s = await settle('fieldtailmarker')
 ok(s.count === '1 matches in 1 tabs', 'field value past 20,000 chars indexed', s.count)
+s = await settle('svgskipmarker')
+ok(s.count === '0 matches', 'style inside svg excluded', s.count)
+s = await settle('nestedskipmarker')
+ok(s.count === '0 matches', 'elements nested in a skipped element excluded', s.count)
 await long.close()
 await panel.waitForTimeout(500)
 
