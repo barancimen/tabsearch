@@ -7,6 +7,7 @@ const DOMS = $('#doms')
 const RESULTS = $('#results')
 const COUNT = $('#count')
 const STATUS = $('#status')
+const BAD = $('#bad')
 
 const PER_TAB = 5 // snippets shown per tab
 const MAX_GROUPS = 400 // tabs listed
@@ -15,6 +16,9 @@ const REFRESH_MS = 150 // repaints are coalesced to one per this interval
 
 const S = {
   cache: new Map(), // tabId -> record
+  failed: new Map(), // tabId -> why it could not be read
+  badOpen: false,
+  badKey: '',
   query: '',
   domain: '',
   mode: { cs: false, ww: false, re: false },
@@ -46,17 +50,60 @@ function el(tag, cls, text) {
   return n
 }
 
+function favicon(src) {
+  if (!src) return el('span', 'fav ph')
+  const img = new Image()
+  img.className = 'fav'
+  img.referrerPolicy = 'no-referrer'
+  img.addEventListener('error', () => img.remove())
+  img.src = src
+  return img
+}
+
 function paintStatus(s) {
   STATUS.textContent = s
+  BAD.hidden = true
+}
+
+function whyNot(t) {
+  return canInject(t.url) ? S.failed.get(t.id) || '' : 'Restricted by Chrome'
+}
+
+function paintBad(bad) {
+  BAD.hidden = !S.badOpen || !bad.length
+  if (BAD.hidden) return
+  const key = bad.map((t) => [t.id, t.url, t.title, whyNot(t)].join(' ')).join('\n')
+  if (key === S.badKey) return
+  S.badKey = key
+  BAD.textContent = ''
+  for (const t of bad) {
+    const row = el('div', 'tabhead')
+    const title = el('span', 'title', t.title || t.url)
+    title.title = t.url || ''
+    row.append(favicon(t.favIconUrl), title, el('span', 'why', whyNot(t)))
+    row.addEventListener('click', () => focusTab({ windowId: t.windowId, tabId: t.id }))
+    BAD.append(row)
+  }
 }
 
 async function paintSummary() {
-  let bad = 0
+  let bad = []
   try {
     const tabs = await chrome.tabs.query({})
-    bad = tabs.filter((t) => t.id != null && !canInject(t.url)).length
+    bad = tabs.filter((t) => t.id != null && whyNot(t))
   } catch (e) {}
-  paintStatus(S.cache.size + ' tabs indexed' + (bad ? ', ' + bad + ' not searchable' : ''))
+  STATUS.textContent = S.cache.size + ' tabs indexed' + (bad.length ? ', ' : '')
+  if (bad.length) {
+    const btn = el('button', '', bad.length + ' not searchable')
+    btn.type = 'button'
+    btn.setAttribute('aria-expanded', String(S.badOpen))
+    btn.addEventListener('click', () => {
+      S.badOpen = !S.badOpen
+      paintSummary()
+    })
+    STATUS.append(btn)
+  }
+  paintBad(bad)
 }
 
 function paintCount(s) {
@@ -131,12 +178,70 @@ function extract() {
     const v = f.value
     if (typeof v === 'string' && v) parts.push(v)
   }
-  return { url: location.href, text: parts.join('\n') }
+  return {
+    url: location.href,
+    text: parts.join('\n'),
+    // true in Chrome's viewer and in viewers that sit on top of it, like Scholar's
+    pdf: document.contentType === 'application/pdf',
+  }
 }
 
-function forget(id) {
+function forget(id, why) {
   S.cache.delete(id)
+  S.failed.set(id, why)
   dbDel(id)
+}
+
+// XHR because fetch refuses file:// URLs.
+function download(url) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('GET', url)
+    xhr.responseType = 'arraybuffer'
+    xhr.withCredentials = true
+    xhr.onload = () => (xhr.status < 400 ? resolve(xhr.response) : reject(new Error(xhr.status)))
+    xhr.onerror = () => reject(new Error('network'))
+    xhr.send()
+  })
+}
+
+let pdfjs
+
+// Loaded on first use. Every PDF shares one worker instead of starting its own.
+function loadPdfjs() {
+  if (!pdfjs) {
+    pdfjs = import('./vendor/pdfjs/pdf.min.mjs').then((lib) => {
+      lib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('vendor/pdfjs/pdf.worker.min.mjs')
+      return { lib, worker: new lib.PDFWorker() }
+    })
+  }
+  return pdfjs
+}
+
+async function readPdf(url) {
+  const data = new Uint8Array(await download(url))
+  const { lib, worker } = await loadPdfjs()
+  const task = lib.getDocument({
+    data,
+    worker,
+    cMapUrl: chrome.runtime.getURL('vendor/pdfjs/cmaps/'),
+    cMapPacked: true,
+    isEvalSupported: false,
+    verbosity: 0,
+  })
+  try {
+    const doc = await task.promise
+    const pages = []
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i)
+      const { items } = await page.getTextContent()
+      pages.push(items.map((x) => (x.str || '') + (x.hasEOL ? ' ' : '')).join(''))
+      page.cleanup()
+    }
+    return squash(pages.join(' ')).trim()
+  } finally {
+    await task.destroy()
+  }
 }
 
 async function readTab(t) {
@@ -146,12 +251,22 @@ async function readTab(t) {
       target: { tabId: t.id, allFrames: true },
       func: extract,
     })
-    const text = res
-      .map((r) => r && r.result && r.result.text)
-      .filter(Boolean)
-      .join('\n')
+    let pdfFailed = false
+    const parts = await Promise.all(
+      res.map(async (r) => {
+        const v = r && r.result
+        if (!v || !v.pdf) return v && v.text
+        try {
+          const body = await readPdf(v.url)
+          return body && (t.title ? t.title + '\n' + body : body)
+        } catch (e) {
+          pdfFailed = true
+        }
+      })
+    )
+    const text = parts.filter(Boolean).join('\n')
     if (!text) {
-      forget(t.id)
+      forget(t.id, pdfFailed ? 'PDF could not be read' : 'No text found')
       return
     }
     const rec = {
@@ -166,9 +281,10 @@ async function readTab(t) {
       hits: 0,
     }
     S.cache.set(t.id, rec)
+    S.failed.delete(t.id)
     if (!t.incognito) dbPut(rec)
   } catch (e) {
-    forget(t.id)
+    forget(t.id, t.discarded || t.status === 'unloaded' ? 'Not loaded' : 'Could not be read')
   }
 }
 
@@ -213,7 +329,10 @@ async function indexAll(full) {
   if (S.indexing) return
   S.indexing = true
   const run = ++S.run
-  if (full) S.cache.clear()
+  if (full) {
+    S.cache.clear()
+    S.failed.clear()
+  }
   const tabs = (await chrome.tabs.query({})).filter((t) => t.id != null)
   const targets = tabs.filter((t) => canInject(t.url))
   const todo = full ? targets : await restore(targets)
@@ -359,16 +478,7 @@ function paint() {
   for (const g of groups) {
     const sec = el('section', 'group')
     const head = el('div', 'tabhead')
-    if (g.rec.fav) {
-      const img = new Image()
-      img.className = 'fav'
-      img.referrerPolicy = 'no-referrer'
-      img.addEventListener('error', () => img.remove())
-      img.src = g.rec.fav
-      head.append(img)
-    } else {
-      head.append(el('span', 'fav ph'))
-    }
+    head.append(favicon(g.rec.fav))
     const title = el('span', 'title', g.rec.title || g.rec.url)
     title.title = g.rec.url
     head.append(title, el('span', 'badge', String(g.total)))
@@ -499,7 +609,7 @@ $('#refresh').addEventListener('click', () => {
 })
 
 document.addEventListener('keydown', (e) => {
-  if (e.target === DOMAIN) return
+  if (e.target === DOMAIN || e.target.closest('#status')) return
   if (e.key === 'Enter' && S.flat.length) {
     e.preventDefault()
     jump(S.sel >= 0 ? S.sel : 0)
@@ -514,13 +624,17 @@ document.addEventListener('keydown', (e) => {
 })
 
 chrome.tabs.onUpdated.addListener((id, info, tab) => {
-  if (info.url) S.cache.delete(id)
+  if (info.url) {
+    S.cache.delete(id)
+    S.failed.delete(id)
+  }
   if (info.status !== 'complete') return
   readTab(tab).then(refresh)
 })
 
 chrome.tabs.onRemoved.addListener((id) => {
   S.cache.delete(id)
+  S.failed.delete(id)
   refresh()
 })
 

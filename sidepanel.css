@@ -111,6 +111,45 @@ button.opt.on {
   display: none;
 }
 
+#status button {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+#status button:hover {
+  color: var(--fg);
+}
+
+#status button::before {
+  content: "▸ ";
+}
+
+#status button[aria-expanded="true"]::before {
+  content: "▾ ";
+}
+
+#bad {
+  max-height: 40vh;
+  margin-top: 4px;
+  overflow: auto;
+  font-size: 11px;
+}
+
+#bad .tabhead {
+  padding: 3px 4px;
+}
+
+#bad .title {
+  font-weight: 400;
+}
+
+#bad .why {
+  flex: none;
+  margin-left: auto;
+  color: var(--dim);
+}
+
 main {
   flex: 1;
   overflow: auto;

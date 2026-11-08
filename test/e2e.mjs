@@ -40,7 +40,45 @@ const PAGES = {
   </body></html>`,
 }
 
+// One text string per page. An empty string makes a page with no text on it.
+function pdf(pages) {
+  const objs = ['<</Type/Catalog/Pages 2 0 R>>', '']
+  const kids = []
+  const font = 3 + pages.length * 2
+  pages.forEach((text, i) => {
+    const page = 3 + i * 2
+    kids.push(page + ' 0 R')
+    objs.push(`<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 ${font} 0 R>>>>/Contents ${page + 1} 0 R>>`)
+    const c = text ? `BT /F1 18 Tf 72 700 Td (${text}) Tj ET` : ''
+    objs.push(`<</Length ${c.length}>>\nstream\n${c}\nendstream`)
+  })
+  objs[1] = `<</Type/Pages/Kids[${kids.join(' ')}]/Count ${pages.length}>>`
+  objs.push('<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>')
+  let out = '%PDF-1.4\n'
+  const offs = objs.map((b, i) => {
+    const at = out.length
+    out += `${i + 1} 0 obj\n${b}\nendobj\n`
+    return at
+  })
+  const xref = out.length
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`
+  out += offs.map((n) => String(n).padStart(10, '0') + ' 00000 n \n').join('')
+  return out + `trailer\n<</Size ${objs.length + 1}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF\n`
+}
+
+// No .pdf in the paths: detection must not depend on the URL.
+const PDFS = {
+  '/paper': pdf(['first page of the paper', 'pdfsecondpagemarker on page two']),
+  '/scan': pdf(['']),
+  '/corrupt': '%PDF-1.4\nthis is not really a pdf',
+}
+
 const srv = http.createServer((req, res) => {
+  const file = PDFS[req.url.split('?')[0]]
+  if (file) {
+    res.writeHead(200, { 'content-type': 'application/pdf' })
+    return res.end(file)
+  }
   const body = PAGES[req.url.split('?')[0]]
   if (!body) {
     res.writeHead(404)
@@ -322,6 +360,67 @@ await beta.waitForTimeout(400)
 await reopen()
 s = await settle('addedafterindex')
 ok(s.count === '0 matches', 'tab reloaded while the panel was closed is re-read', s.count)
+
+// --- pdfs -----------------------------------------------------------------
+const openPdf = async (p) => {
+  const page = await ctx.newPage()
+  await page.goto(base + p, { waitUntil: 'commit' })
+  return page
+}
+await settle('')
+const paper = await openPdf('/paper')
+const scan = await openPdf('/scan')
+const corrupt = await openPdf('/corrupt')
+const paperType = await paper.evaluate(() => document.contentType)
+ok(paperType === 'application/pdf', 'tab shows the built-in pdf viewer', paperType)
+await panel.bringToFront()
+await panel.waitForFunction(
+  () => S.cache.size && [...S.cache.values()].some((r) => r.text.includes('pdfsecondpagemarker')) && S.failed.size >= 2,
+  null,
+  { timeout: 30000, polling: 200 }
+)
+s = await settle('pdfsecondpagemarker')
+p('pdf', s)
+ok(s.count === '1 matches in 1 tabs', 'text on page two of a pdf is found', s.count)
+ok((await text('#results')).includes('page two'), 'pdf text shown in the snippet', await text('#results'))
+await panel.reload()
+await panel.waitForFunction(
+  () => /not searchable/.test(document.querySelector('#status').textContent),
+  null,
+  { timeout: 30000, polling: 100 }
+)
+s = await settle('pdfsecondpagemarker')
+ok(s.count === '1 matches in 1 tabs', 'pdf text comes back from the saved index', s.count)
+
+// --- not searchable list --------------------------------------------------
+await panel.waitForTimeout(800)
+const line = await text('#status')
+p('status with pdfs', line)
+ok(/, \d+ not searchable$/.test(line), 'status text stays on one line', line)
+ok(await panel.isHidden('#bad'), 'list starts collapsed')
+ok((await panel.getAttribute('#status button', 'aria-expanded')) === 'false', 'toggle starts collapsed')
+await panel.click('#status button')
+await panel.waitForTimeout(200)
+ok(await panel.isVisible('#bad'), 'toggle expands the list')
+ok((await panel.getAttribute('#status button', 'aria-expanded')) === 'true', 'toggle reports expanded')
+const rows = await panel.$$eval('#bad .tabhead', (n) => n.map((x) => x.querySelector('.why').textContent))
+p('not searchable rows', rows)
+ok(String(rows.length) === line.match(/(\d+) not searchable/)[1], 'one row per tab in the count', JSON.stringify(rows))
+ok(rows.includes('Restricted by Chrome'), 'restricted tabs listed', JSON.stringify(rows))
+ok(rows.includes('No text found'), 'pdf with no text listed', JSON.stringify(rows))
+ok(rows.includes('PDF could not be read'), 'broken pdf listed', JSON.stringify(rows))
+const corruptRow = panel.locator('#bad .tabhead', { hasText: 'PDF could not be read' })
+await corruptRow.click()
+await panel.waitForTimeout(400)
+const front = await panel.evaluate(() => chrome.tabs.query({ active: true }).then((t) => (t[0] || {}).url))
+ok(front === base + '/corrupt', 'clicking a row switches to that tab', String(front))
+await panel.bringToFront()
+await panel.click('#status button')
+await panel.waitForTimeout(200)
+ok(await panel.isHidden('#bad'), 'toggle collapses the list')
+await paper.close()
+await scan.close()
+await corrupt.close()
 
 console.log('---')
 console.log(checks - fails + '/' + checks + ' checks passed')
