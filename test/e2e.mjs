@@ -31,6 +31,10 @@ const PAGES = {
   </body></html>`,
   '/delta': `<!doctype html><html><head><title>Delta Caps</title></head><body>
     <p>NEEDLE in capitals of the alphabet.</p></body></html>`,
+  '/long': `<!doctype html><html><head><title>Long Page</title></head><body>
+    <p>${'filler '.repeat(50000)} bodytailmarker</p>
+    <input value="${'filler '.repeat(5000)} fieldtailmarker">
+  </body></html>`,
 }
 
 const srv = http.createServer((req, res) => {
@@ -272,6 +276,45 @@ await panel.bringToFront()
 await panel.waitForTimeout(500)
 s = await settle('capitals')
 ok(s.count === '0 matches' && (await text('#results')).includes('No matches'), 'closed tab dropped from the index', s.count)
+
+// --- no text limits -------------------------------------------------------
+const long = await open('/long')
+await panel.bringToFront()
+await panel.waitForTimeout(900)
+s = await settle('bodytailmarker')
+ok(s.count === '1 matches in 1 tabs', 'text past 200,000 chars indexed', s.count)
+s = await settle('fieldtailmarker')
+ok(s.count === '1 matches in 1 tabs', 'field value past 20,000 chars indexed', s.count)
+await long.close()
+await panel.waitForTimeout(500)
+
+// --- saved index ----------------------------------------------------------
+const reopen = async () => {
+  await panel.goto(`chrome-extension://${id}/sidepanel.html`)
+  await panel.waitForFunction(
+    () => /not searchable/.test(document.querySelector('#status').textContent),
+    null,
+    { timeout: 30000, polling: 100 }
+  )
+}
+await beta.evaluate(() => document.body.append('addedafterindex'))
+await reopen()
+s = await settle('only one needle')
+ok(s.count === '1 matches in 1 tabs', 'reopened panel serves the saved text', s.count)
+s = await settle('addedafterindex')
+ok(s.count === '0 matches', 'reopened panel did not re-read an unchanged tab', s.count)
+
+await panel.click('#refresh')
+await panel.waitForTimeout(800)
+s = await settle('addedafterindex')
+ok(s.count === '1 matches in 1 tabs', 'reindex re-reads every tab', s.count)
+
+await panel.goto('about:blank')
+await beta.reload({ waitUntil: 'load' })
+await beta.waitForTimeout(400)
+await reopen()
+s = await settle('addedafterindex')
+ok(s.count === '0 matches', 'tab reloaded while the panel was closed is re-read', s.count)
 
 console.log('---')
 console.log(checks - fails + '/' + checks + ' checks passed')

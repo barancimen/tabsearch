@@ -10,9 +10,8 @@ const STATUS = $('#status')
 
 const PER_TAB = 5 // snippets shown per tab
 const MAX_GROUPS = 400 // tabs listed
-const MAX_TEXT = 200000 // chars kept per tab
-const BATCH = 8 // tabs injected at a time
 const PAD = 80 // snippet context chars
+const REFRESH_MS = 150 // repaints are coalesced to one per this interval
 
 const S = {
   cache: new Map(), // tabId -> record
@@ -20,6 +19,9 @@ const S = {
   domain: '',
   mode: { cs: false, ww: false, re: false },
   indexing: false,
+  done: 0,
+  total: 0,
+  refreshT: 0,
   run: 0,
   groups: [],
   flat: [], // one entry per rendered snippet
@@ -112,16 +114,17 @@ function extract() {
     const t = (clone.textContent || '').replace(/\s+/g, ' ').trim()
     if (t) parts.push(t)
   }
-  let n = 0
   for (const f of document.querySelectorAll('input,textarea')) {
     if (f.type === 'password') continue
     const v = f.value
-    if (typeof v === 'string' && v && v.length < 20000) {
-      parts.push(v)
-      if (++n >= 200) break
-    }
+    if (typeof v === 'string' && v) parts.push(v)
   }
-  return { url: location.href, text: parts.join('\n').slice(0, 200000) }
+  return { url: location.href, text: parts.join('\n') }
+}
+
+function forget(id) {
+  S.cache.delete(id)
+  dbDel(id)
 }
 
 async function readTab(t) {
@@ -135,12 +138,11 @@ async function readTab(t) {
       .map((r) => r && r.result && r.result.text)
       .filter(Boolean)
       .join('\n')
-      .slice(0, MAX_TEXT)
     if (!text) {
-      S.cache.delete(t.id)
+      forget(t.id)
       return
     }
-    S.cache.set(t.id, {
+    const rec = {
       tabId: t.id,
       windowId: t.windowId,
       index: t.index || 0,
@@ -150,33 +152,75 @@ async function readTab(t) {
       ...hostsOf(t.url),
       text,
       hits: 0,
-    })
+    }
+    S.cache.set(t.id, rec)
+    if (!t.incognito) dbPut(rec)
   } catch (e) {
-    S.cache.delete(t.id)
+    forget(t.id)
   }
 }
 
-async function indexAll() {
+// Loads the saved index and returns the tabs it does not cover.
+async function restore(targets) {
+  let saved = []
+  try {
+    saved = await dbAll()
+  } catch (e) {}
+  const live = new Map(targets.map((t) => [t.id, t]))
+  for (const rec of saved) {
+    const t = live.get(rec.tabId)
+    if (!t || t.url !== rec.url) {
+      dbDel(rec.tabId)
+      continue
+    }
+    // a tab that finished loading while this ran has fresher text already
+    if (S.cache.has(t.id)) continue
+    S.cache.set(t.id, {
+      ...rec,
+      windowId: t.windowId,
+      index: t.index || 0,
+      title: t.title || '',
+      fav: t.favIconUrl || '',
+    })
+  }
+  return targets.filter((t) => !S.cache.has(t.id))
+}
+
+function refresh() {
+  if (S.refreshT) return
+  S.refreshT = setTimeout(() => {
+    S.refreshT = 0
+    if (S.indexing) paintStatus('Indexing ' + S.done + '/' + S.total)
+    else paintSummary()
+    paintDomains()
+    if (S.query) runSearch()
+  }, REFRESH_MS)
+}
+
+async function indexAll(full) {
   if (S.indexing) return
   S.indexing = true
   const run = ++S.run
-  S.cache.clear()
+  if (full) S.cache.clear()
   const tabs = (await chrome.tabs.query({})).filter((t) => t.id != null)
   const targets = tabs.filter((t) => canInject(t.url))
-  let done = 0
-  paintStatus('Indexing 0/' + targets.length)
-  for (let i = 0; i < targets.length; i += BATCH) {
-    if (run !== S.run) return
-    await Promise.all(
-      targets.slice(i, i + BATCH).map(async (t) => {
-        await readTab(t)
-        done++
-      })
-    )
-    if (run !== S.run) return
-    paintStatus('Indexing ' + done + '/' + targets.length)
-    if (S.query) runSearch()
-  }
+  const todo = full ? targets : await restore(targets)
+  if (run !== S.run) return
+  S.done = 0
+  S.total = todo.length
+  paintStatus('Indexing 0/' + todo.length)
+  paintDomains()
+  if (S.query) runSearch()
+  // All at once and not in batches, so a slow tab only ever delays itself.
+  await Promise.all(
+    todo.map(async (t) => {
+      await readTab(t)
+      if (run !== S.run) return
+      S.done++
+      refresh()
+    })
+  )
+  if (run !== S.run) return
   S.indexing = false
   await paintSummary()
   paintDomains()
@@ -439,7 +483,7 @@ for (const [key, id] of [
 $('#refresh').addEventListener('click', () => {
   S.run++
   S.indexing = false
-  indexAll()
+  indexAll(true)
 })
 
 document.addEventListener('keydown', (e) => {
@@ -460,20 +504,12 @@ document.addEventListener('keydown', (e) => {
 chrome.tabs.onUpdated.addListener((id, info, tab) => {
   if (info.url) S.cache.delete(id)
   if (info.status !== 'complete') return
-  readTab(tab).then(() => {
-    if (S.indexing) return
-    paintSummary()
-    paintDomains()
-    if (S.query) runSearch()
-  })
+  readTab(tab).then(refresh)
 })
 
 chrome.tabs.onRemoved.addListener((id) => {
   S.cache.delete(id)
-  if (S.indexing) return
-  paintSummary()
-  paintDomains()
-  if (S.query) runSearch()
+  refresh()
 })
 
 ;(async function init() {
