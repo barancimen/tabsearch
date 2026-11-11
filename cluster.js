@@ -4,6 +4,8 @@
 // only strengthens a resemblance their text already shows: tabs with nothing in
 // common are never put together because of where they sit.
 const Cluster = (() => {
+  // Bump when terms() changes, so word counts saved by an older version are redone.
+  const VERSION = 1
   const TITLE_WEIGHT = 3 // a title word counts as this many body words
   const KEEP_PER_DOC = 400 // most frequent terms kept from each page
   const VECTOR_TERMS = 100 // highest weighted terms that represent a page
@@ -329,7 +331,7 @@ const Cluster = (() => {
     return { groups, rest }
   }
 
-  return { terms, group, vectors, similarity, SAME_WINDOW, JOIN }
+  return { terms, group, vectors, similarity, SAME_WINDOW, JOIN, VERSION }
 })()
 
 if (typeof module === 'object' && module.exports) module.exports = Cluster

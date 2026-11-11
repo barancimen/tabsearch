@@ -517,6 +517,18 @@ await panel.waitForTimeout(300)
 const catFront = await panel.evaluate(() => chrome.tabs.query({ active: true, lastFocusedWindow: true }).then((t) => (t[0] || {}).title))
 ok(/^Risotto/.test(catFront || ''), 'clicking a tab in a group switches to it', catFront)
 
+// word counts are saved with the index; a marker planted in one shows the
+// reopened panel uses them instead of counting again
+const countsSaved = await panel.evaluate(async () => {
+  const recs = (await dbAll()).filter((r) => / - Wikipedia$/.test(r.title))
+  const all = recs.length === 7 && recs.every((r) => Array.isArray(r.terms) && r.terms.length > 10)
+  const taj = recs.find((r) => /^Taj Mahal/.test(r.title))
+  taj.terms = [['zzsavedmarker', 9]]
+  await dbPut(taj)
+  return all
+})
+ok(countsSaved, 'word counts are saved with the index')
+
 // Chrome's built-in model, faked: the view asks it to name each group
 await panel.addInitScript(() => {
   window.__prompts = []
@@ -536,6 +548,8 @@ await panel.addInitScript(() => {
 await reopen()
 await panel.waitForSelector('#cats section.cat', { timeout: 10000 })
 ok(!(await panel.isHidden('#cats')), 'reopened panel keeps the categories view')
+const marker = await panel.evaluate(() => [...S.cache.values()].find((r) => /^Taj Mahal/.test(r.title)).terms[0][0])
+ok(marker === 'zzsavedmarker', 'reopened panel uses the saved word counts', marker)
 await panel.waitForFunction(() => /Italian Cooking/.test(document.querySelector('#cats').textContent), null, { timeout: 10000, polling: 100 })
 cs = await cats()
 ok(groupOf('Pasta').name === 'Italian Cooking', 'the model names the food group', JSON.stringify(groupOf('Pasta')))

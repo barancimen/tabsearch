@@ -83,6 +83,17 @@ How tabs are grouped (`cluster.js`):
 - Groups form by average linkage: the two most alike groups merge, over and
   over, while their tabs' average resemblance is at least 0.02.
 
+What is redone when:
+
+- Each tab's word counts are computed the first time it is grouped and saved in
+  its index record, so reopening the panel does not count them again. They are
+  redone when the tab is re-read or its title or site changes, and when
+  `Cluster.VERSION` in `cluster.js` is bumped.
+- The grouping itself runs over all tabs each time the view is drawn, because a
+  new tab changes how rare each word is across the tabs. It runs at most once
+  per 0.6 s, only while the Categories view is showing, and the list is redrawn
+  only when the groups change.
+
 Group names:
 
 - By default a group is named by its three most telling words, such as

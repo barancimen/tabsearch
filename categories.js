@@ -23,7 +23,6 @@ const AI_SCHEMA = {
 }
 
 const C = {
-  terms: new Map(), // tabId -> { title, text, host, terms }
   timer: 0,
   shown: '', // what the view on screen was drawn from
   names: new Map(), // group key -> name from the AI model
@@ -35,17 +34,23 @@ const C = {
   groups: [],
 }
 
+// A tab's word counts are saved in its index record, so a reopened panel does not
+// count them again. A record's text never changes (a re-read makes a new record),
+// so the counts only go stale when the title or the site does.
 function docFor(t) {
   const rec = S.cache.get(t.id)
-  const text = rec ? rec.text : ''
   const title = t.title || ''
   const host = hostsOf(t.url).hostname
-  let c = C.terms.get(t.id)
-  if (!c || c.text !== text || c.title !== title || c.host !== host) {
-    c = { text, title, host, terms: Cluster.terms(title, text, host) }
-    C.terms.set(t.id, c)
+  const doc = { id: t.id, windowId: t.windowId, index: t.index, title, text: rec ? rec.text : '', tab: t }
+  // a tab that could not be read is grouped on its title, which is quick to count
+  if (!rec) return { ...doc, terms: Cluster.terms(title, '', host) }
+  const key = Cluster.VERSION + '\n' + title + '\n' + host
+  if (rec.termsKey !== key) {
+    rec.terms = Cluster.terms(title, rec.text, host)
+    rec.termsKey = key
+    if (!t.incognito) dbPut(rec)
   }
-  return { id: t.id, windowId: t.windowId, index: t.index, title, text, terms: c.terms, tab: t }
+  return { ...doc, terms: rec.terms }
 }
 
 function groupKey(g) {
@@ -68,8 +73,6 @@ async function paintCats() {
   try {
     tabs = (await chrome.tabs.query({})).filter((t) => t.id != null)
   } catch (e) {}
-  const live = new Set(tabs.map((t) => t.id))
-  for (const id of C.terms.keys()) if (!live.has(id)) C.terms.delete(id)
   const { groups, rest } = Cluster.group(tabs.map(docFor))
   for (const g of groups) g.key = groupKey(g)
   C.groups = groups
