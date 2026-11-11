@@ -118,7 +118,6 @@ function showView(draw = true) {
   SEARCHBAR.hidden = cats
   RESULTS.hidden = cats
   CATS.hidden = !cats
-  paintNote()
   if (cats && draw) paintCats()
   if (!cats) Q.focus()
 }

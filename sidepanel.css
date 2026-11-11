@@ -114,12 +114,6 @@ button.view[aria-selected="true"] {
   margin-top: 6px;
 }
 
-#catnote {
-  margin-top: 6px;
-  color: var(--dim);
-  font-size: 11px;
-}
-
 #count,
 #status {
   color: var(--dim);
@@ -290,12 +284,6 @@ mark {
 .cat.rest .catname {
   color: var(--dim);
   font-weight: 400;
-}
-
-.catwhy {
-  padding: 0 8px 4px;
-  color: var(--dim);
-  font-size: 11px;
 }
 
 .cattab {

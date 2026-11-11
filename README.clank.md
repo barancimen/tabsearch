@@ -96,31 +96,12 @@ What is redone when:
 
 Group names:
 
-- By default a group is named by its three most telling words, such as
-  "Italian, Dishes, Pasta". These are words that weigh a lot in most of the
-  group's tabs and little in the others, written as the pages write them
-  ("GitHub", "NASA").
-- If Chrome's built-in model (Gemini Nano, the `LanguageModel` Prompt API) is
-  available on the device, it names the groups, such as "Italian Cooking", and
-  the telling words are shown under the name. Everything runs on the device. If
-  the model still needs downloading, a button offers it, since Chrome only
-  starts that download after a click.
-  - All groups that need a name go to the model in one request, or as few as fit
-    in its context, so it can keep the names apart. The names other groups
-    already have are listed as taken. A duplicate that slips through gets the
-    group's top word added.
-  - Each tab is given as its title, its site and its opening sentence: the meta
-    description when the page has one, otherwise the first sentence of eight or
-    more words. Up to 10 tabs per group are shown, or 5 without sentences if the
-    group would not fit otherwise. One worked example in the session sets the
-    format and the level of detail.
-- **Names stay put.** A group keeps its name while at least half of its tabs
-  had that name and at least half of the named tabs are still in it, so a tab
-  joining or leaving does not rename it. Names are tied to URLs (tab ids change
-  on restart) and saved in `chrome.storage.local`, so they survive a browser
-  restart. The 300 most recently used are kept. Groups with an incognito tab
-  are named for the session only, and a request that failed is retried in the
-  next session.
+- A group is named by its three most telling words, such as "Italian, Dishes,
+  Pasta". These are words that weigh a lot in most of the group's tabs and
+  little in the others, written as the pages write them ("GitHub", "NASA").
+  Forms of one word ("Italy", "Italian") are not repeated. Names are computed
+  each time, so a group's name can change as tabs join or leave it. No AI model
+  is used, and nothing leaves the computer.
 
 The thresholds were tuned on Wikipedia articles from six subjects: full
 articles, and the same articles cut to 8,000 and 3,000 characters to stand in
@@ -214,7 +195,7 @@ scrolling to the match.
     sidepanel.css      panel styles, light and dark
     sidepanel.js       extraction, index, search, rendering, navigation
     cluster.js         groups tabs by subject and picks words to name the groups
-    categories.js      the Categories view and naming with Chrome's built-in model
+    categories.js      the Categories view
     vendor/pdfjs/      pdf.js, used to read PDF text
     icons/             toolbar icons
     test/e2e.mjs       end to end test
@@ -227,7 +208,7 @@ Boots a real Chromium with the extension loaded, serves pages and PDFs with
 known text on four loopback hostnames (`127.0.0.1`, `localhost`,
 `foo.localhost`, `[::1]`), suspends some of the tabs, drives the side panel, and
 asserts on the rendered results. For Categories it opens Wikipedia articles in
-two windows that mix subjects, and fakes Chrome's model to check the naming.
+two windows that mix subjects.
 `npm run test:unit` runs only the clustering test, in about a second.
 
     npm install

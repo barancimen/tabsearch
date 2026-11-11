@@ -493,7 +493,6 @@ const cats = () =>
   panel.$$eval('#cats section.cat', (secs) =>
     secs.map((s) => ({
       name: s.querySelector('.catname').textContent,
-      why: s.querySelector('.catwhy') && !s.querySelector('.catwhy').hidden ? s.querySelector('.catwhy').textContent : '',
       rest: s.classList.contains('rest'),
       tabs: [...s.querySelectorAll('.cattab .title')].map((t) => t.textContent.replace(' - Wikipedia', '')),
       wins: [...s.querySelectorAll('.cattab .win')].map((t) => t.textContent),
@@ -529,68 +528,14 @@ const countsSaved = await panel.evaluate(async () => {
 })
 ok(countsSaved, 'word counts are saved with the index')
 
-// Chrome's built-in model, faked: the view asks it to name each group
-await panel.addInitScript(() => {
-  window.__prompts = []
-  globalThis.LanguageModel = {
-    availability: async () => 'available',
-    create: async (opts) => {
-      window.__created = opts
-      return {
-        clone: async () => ({
-          // one name per "Group N:" block, in order
-          prompt: async (text) => {
-            window.__prompts.push(text)
-            const blocks = text.split(/^Group \d+:$/m).slice(1)
-            const names = blocks.map((b, i) =>
-              /Pasta|Lasagna/.test(b) ? 'Italian Cooking' : /JavaScript|Python/.test(b) ? 'Programming Languages' : 'Something ' + i
-            )
-            return JSON.stringify({ names })
-          },
-          destroy() {},
-        }),
-      }
-    },
-  }
-})
 await reopen()
 await panel.waitForSelector('#cats section.cat', { timeout: 10000 })
 ok(!(await panel.isHidden('#cats')), 'reopened panel keeps the categories view')
 const marker = await panel.evaluate(() => [...S.cache.values()].find((r) => /^Taj Mahal/.test(r.title)).terms[0][0])
 ok(marker === 'zzsavedmarker', 'reopened panel uses the saved word counts', marker)
-await panel.waitForFunction(() => /Italian Cooking/.test(document.querySelector('#cats').textContent), null, { timeout: 10000, polling: 100 })
-cs = await cats()
-ok(groupOf('Pasta').name === 'Italian Cooking', 'the model names the food group', JSON.stringify(groupOf('Pasta')))
-ok(groupOf('Rust (programming language)').name === 'Programming Languages', 'the model names the code group', JSON.stringify(groupOf('Rust (programming language)')))
-ok(groupOf('Pasta').why !== '', 'the telling words are shown under a model name', JSON.stringify(groupOf('Pasta')))
-const prompts = await panel.evaluate(() => window.__prompts)
-ok(prompts.some((x) => x.includes('Lasagna - Wikipedia')), 'the model is given the tab titles', prompts[0])
-ok(prompts.length === 1 && /Lasagna/.test(prompts[0]) && /JavaScript/.test(prompts[0]), 'all groups are named in one request', JSON.stringify(prompts))
-ok(/Pasta - Wikipedia — 127\.0\.0\.1 — .*type of food/.test(prompts[0]), 'each tab is given with its site and opening sentence', prompts[0])
-const created = await panel.evaluate(() => window.__created.initialPrompts.map((x) => x.role))
-ok(created.join() === 'system,user,assistant', 'the model is shown a worked example', created.join())
-const stored = await panel.evaluate(() => chrome.storage.local.get('catNames').then((x) => x.catNames.map((n) => n.name)))
-ok(stored.includes('Italian Cooking') && stored.includes('Programming Languages'), 'names are saved across restarts', JSON.stringify(stored))
-const asked = prompts.length
-await panel.evaluate(() => paintCats())
-await panel.waitForTimeout(300)
-ok((await panel.evaluate(() => window.__prompts.length)) === asked, 'a named group is not asked about again')
-
-// a tab joining a named group keeps the name, without asking again
-await panel.evaluate(([w, url]) => chrome.tabs.create({ windowId: w, url, active: false }), [winIds[1], art('Pizza')])
-await panel.waitForFunction(() => [...S.cache.values()].some((r) => /^Pizza/.test(r.title)), null, { timeout: 20000, polling: 200 })
 await panel.waitForTimeout(CATS_SETTLE)
 cs = await cats()
-ok(groupOf('Pizza') === groupOf('Pasta') && groupOf('Pizza').name === 'Italian Cooking', 'a group keeps its name when a tab joins', JSON.stringify(groupOf('Pizza')))
-ok((await panel.evaluate(() => window.__prompts.length)) === asked, 'a joining tab does not ask the model again')
-
-// most of the named tabs gone: the group is named again, told which names are taken
-await panel.evaluate(() =>
-  chrome.tabs.query({}).then((ts) => chrome.tabs.remove(ts.filter((t) => /^(Lasagna|Risotto) /.test(t.title)).map((t) => t.id)))
-)
-await panel.waitForFunction((n) => window.__prompts.length > n, asked, { timeout: 10000, polling: 100 })
-const renamed = await panel.evaluate(() => window.__prompts.at(-1))
-ok(/^Names already in use: Programming Languages/.test(renamed) && !/JavaScript/.test(renamed), 'a changed group is named again, apart from the others', renamed.slice(0, 300))
+ok(groupOf('Pasta').name === food.name, 'reopened panel shows the same groups', JSON.stringify(groupOf('Pasta')))
 
 await panel.click('#v-search')
 await panel.evaluate((ids) => Promise.all(ids.map((w) => chrome.windows.remove(w))), winIds)
