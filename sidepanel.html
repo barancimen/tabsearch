@@ -7,40 +7,50 @@
   </head>
   <body>
     <header>
-      <div class="row">
-        <input
-          id="q"
-          class="box"
-          type="search"
-          placeholder="Search the text of all open tabs"
-          autocomplete="off"
-          spellcheck="false"
-        />
+      <div class="row" role="tablist">
+        <button id="v-search" class="view" type="button" role="tab" aria-selected="true">Search</button>
+        <button id="v-cats" class="view" type="button" role="tab" aria-selected="false">Categories</button>
         <button id="refresh" type="button" title="Re-index every tab">Reindex</button>
       </div>
-      <div class="row">
-        <button id="cs" class="opt" type="button" title="Match case">Aa</button>
-        <button id="ww" class="opt" type="button" title="Whole word">Word</button>
-        <button id="re" class="opt" type="button" title="Regular expression">.*</button>
-        <span id="count"></span>
+      <div id="searchbar">
+        <div class="row">
+          <input
+            id="q"
+            class="box"
+            type="search"
+            placeholder="Search the text of all open tabs"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+        <div class="row">
+          <button id="cs" class="opt" type="button" title="Match case">Aa</button>
+          <button id="ww" class="opt" type="button" title="Whole word">Word</button>
+          <button id="re" class="opt" type="button" title="Regular expression">.*</button>
+          <span id="count"></span>
+        </div>
+        <div class="row">
+          <input
+            id="dom"
+            class="box"
+            type="search"
+            list="doms"
+            placeholder="All domains, or filter to x.com"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <datalist id="doms"></datalist>
+        </div>
       </div>
-      <div class="row">
-        <input
-          id="dom"
-          class="box"
-          type="search"
-          list="doms"
-          placeholder="All domains, or filter to x.com"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <datalist id="doms"></datalist>
-      </div>
+      <div id="catnote" hidden></div>
       <div id="status"></div>
       <div id="bad" hidden></div>
     </header>
     <main id="results"></main>
+    <main id="cats" hidden></main>
     <script src="db.js"></script>
+    <script src="cluster.js"></script>
     <script src="sidepanel.js"></script>
+    <script src="categories.js"></script>
   </body>
 </html>

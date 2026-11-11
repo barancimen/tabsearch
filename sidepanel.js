@@ -8,6 +8,7 @@ const RESULTS = $('#results')
 const COUNT = $('#count')
 const STATUS = $('#status')
 const BAD = $('#bad')
+const SEARCHBAR = $('#searchbar')
 
 const PER_TAB = 5 // snippets shown per tab
 const MAX_GROUPS = 400 // tabs listed
@@ -35,6 +36,7 @@ const S = {
   sel: -1,
   pending: null, // saved selection and scroll, applied by the first paint with results
   painted: '', // what the results on screen are for
+  view: 'search', // or 'cats'
 }
 
 // Tells this panel's saves apart from those of the panels in other windows.
@@ -86,6 +88,8 @@ function saveUi(now) {
       badOpen: S.badOpen,
       sel: S.pending ? S.pending.sel : selKey(S.flat[S.sel]),
       scroll: S.pending ? S.pending.scroll : RESULTS.scrollTop,
+      view: S.view,
+      catsScroll: C.pendingScroll != null ? C.pendingScroll : CATS.scrollTop,
     }
     chrome.storage.local.set({ ui }).catch(() => {})
   }
@@ -103,6 +107,20 @@ function applyUi(ui) {
   if (ui.mode) Object.assign(S.mode, ui.mode)
   for (const k of ['cs', 'ww', 're']) $('#' + k).classList.toggle('on', !!S.mode[k])
   S.badOpen = !!ui.badOpen
+  S.view = ui.view === 'cats' ? 'cats' : 'search'
+}
+
+// Shows the Search or the Categories view, whichever S.view says.
+function showView(draw = true) {
+  const cats = S.view === 'cats'
+  $('#v-search').setAttribute('aria-selected', String(!cats))
+  $('#v-cats').setAttribute('aria-selected', String(cats))
+  SEARCHBAR.hidden = cats
+  RESULTS.hidden = cats
+  CATS.hidden = !cats
+  paintNote()
+  if (cats && draw) paintCats()
+  if (!cats) Q.focus()
 }
 
 function paintStatus(s) {
@@ -454,6 +472,7 @@ function refresh() {
     else paintSummary()
     paintDomains()
     if (S.query) runSearch()
+    if (typeof scheduleCats === 'function') scheduleCats()
   }, REFRESH_MS)
 }
 
@@ -476,6 +495,7 @@ async function indexAll(full) {
   paintStatus('Indexing 0/' + todo.length)
   paintDomains()
   if (S.query) runSearch()
+  scheduleCats()
   // All at once and not in batches, so a slow tab only ever delays itself.
   await Promise.all(
     todo.map(async (t) => {
@@ -490,6 +510,7 @@ async function indexAll(full) {
   await paintSummary()
   paintDomains()
   if (S.query) runSearch()
+  scheduleCats()
 }
 
 function buildRe(q, m) {
@@ -765,7 +786,20 @@ $('#refresh').addEventListener('click', () => {
   indexAll(true)
 })
 
+for (const [view, id] of [
+  ['search', '#v-search'],
+  ['cats', '#v-cats'],
+]) {
+  $(id).addEventListener('click', () => {
+    if (S.view === view) return
+    S.view = view
+    saveUi()
+    showView()
+  })
+}
+
 document.addEventListener('keydown', (e) => {
+  if (S.view !== 'search') return
   if (e.target === DOMAIN || e.target.closest('#status, #bad')) return
   if (e.key === 'Enter' && S.flat.length) {
     e.preventDefault()
@@ -787,7 +821,9 @@ addEventListener('pagehide', () => saveUi(true))
 chrome.storage.onChanged.addListener((changes, area) => {
   const ui = area === 'local' && changes.ui && changes.ui.newValue
   if (!ui || ui.from === ME) return
+  const view = S.view
   applyUi(ui)
+  if (S.view !== view) showView()
   if (!S.indexing) paintSummary()
   runSearch()
 })
@@ -823,14 +859,20 @@ chrome.tabs.onReplaced.addListener((added, removed) => {
 })
 
 ;(async function init() {
+  // categories.js runs after this file, and a storage reply can arrive before it does
+  if (document.readyState === 'loading') {
+    await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }))
+  }
   try {
     // "mode" is where versions before the saved panel state kept the options
     const { ui, mode } = await chrome.storage.local.get(['ui', 'mode'])
     const saved = ui || { mode }
     applyUi(saved)
     S.pending = { sel: saved.sel || '', scroll: saved.scroll || 0 }
+    C.pendingScroll = saved.catsScroll || 0
   } catch (e) {}
-  Q.focus()
+  // the first grouping waits for the saved index, so it is not done on titles alone
+  showView(false)
   // with a saved query, the first paint waits for the saved index
   if (!S.query) paint()
   await indexAll()

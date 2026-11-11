@@ -99,7 +99,25 @@ const PDFS = {
   '/type3': brokenType3('abbabaabab'),
 }
 
+// /a/<n>: one Wikipedia article as a web page, for the Categories view
+const ARTICLES = JSON.parse(
+  fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'articles.json'), 'utf8')
+).articles
+const ARTICLE_NAMES = Object.keys(ARTICLES)
+const article = (name) =>
+  `<!doctype html><title>${name} - Wikipedia</title><body><nav>Main menu Search Donate Log in</nav><main>` +
+  ARTICLES[name]
+    .split(/\n+/)
+    .map((x) => '<p>' + x.replace(/[<&]/g, '') + '</p>')
+    .join('') +
+  '</main></body>'
+
 const srv = http.createServer((req, res) => {
+  const a = /^\/a\/(\d+)$/.exec(req.url)
+  if (a && ARTICLE_NAMES[a[1]]) {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    return res.end(article(ARTICLE_NAMES[a[1]]))
+  }
   const file = PDFS[req.url.split('?')[0]]
   if (file) {
     res.writeHead(200, { 'content-type': 'application/pdf' })
@@ -186,12 +204,13 @@ const settle = async (q, dom) => {
   await panel.waitForTimeout(500)
   return {
     count: await text('#count'),
-    titles: await panel.$$eval('.tabhead .title', (n) => n.map((x) => x.textContent)),
+    titles: await panel.$$eval('#results .tabhead .title', (n) => n.map((x) => x.textContent)),
     marks: await panel.$$eval('mark', (n) => n.length),
     status: await text('#status'),
   }
 }
 
+const CATS_SETTLE = 900 // a little more than the view's regrouping interval
 const p = (label, s) => console.log(label + ': ' + JSON.stringify(s))
 
 await panel.waitForFunction(
@@ -375,7 +394,13 @@ const reopen = async () => {
 await beta.evaluate(() => document.body.append('addedafterindex'))
 await reopen()
 s = await settle('only one needle')
-ok(s.count === '1 matches in 1 tabs', 'reopened panel serves the saved text', s.count)
+ok(
+  s.count === '1 matches in 1 tabs',
+  'reopened panel serves the saved text',
+  s.count +
+    ' ' +
+    JSON.stringify(await panel.evaluate(() => [S.query, S.domain, S.indexing, [...S.cache.values()].map((r) => r.title)]))
+)
 s = await settle('addedafterindex')
 ok(s.count === '0 matches', 'reopened panel did not re-read an unchanged tab', s.count)
 
@@ -445,6 +470,87 @@ await panel.click('#status button')
 await panel.fill('#dom', '')
 await panel.setViewportSize({ width: 1280, height: 720 })
 await panel.waitForTimeout(300)
+
+// --- categories ------------------------------------------------------------
+// Two new windows whose tabs mix subjects: the groups must follow the text.
+const art = (name) => base + '/a/' + ARTICLE_NAMES.indexOf(name)
+const W1 = ['Pasta', 'Python (programming language)', 'Taj Mahal']
+const W2 = ['Lasagna', 'JavaScript', 'Risotto', 'Rust (programming language)']
+const winIds = await panel.evaluate(
+  async ([a, b]) => [(await chrome.windows.create({ url: a })).id, (await chrome.windows.create({ url: b })).id],
+  [W1.map(art), W2.map(art)]
+)
+await panel.waitForFunction(
+  (n) => [...S.cache.values()].filter((r) => / - Wikipedia$/.test(r.title)).length === n,
+  W1.length + W2.length,
+  { timeout: 30000, polling: 200 }
+)
+await panel.bringToFront()
+await panel.click('#v-cats')
+await panel.waitForSelector('#cats section.cat', { timeout: 10000 })
+await panel.waitForTimeout(CATS_SETTLE)
+const cats = () =>
+  panel.$$eval('#cats section.cat', (secs) =>
+    secs.map((s) => ({
+      name: s.querySelector('.catname').textContent,
+      why: s.querySelector('.catwhy') && !s.querySelector('.catwhy').hidden ? s.querySelector('.catwhy').textContent : '',
+      rest: s.classList.contains('rest'),
+      tabs: [...s.querySelectorAll('.cattab .title')].map((t) => t.textContent.replace(' - Wikipedia', '')),
+      wins: [...s.querySelectorAll('.cattab .win')].map((t) => t.textContent),
+    }))
+  )
+let cs = await cats()
+p('categories', cs)
+const groupOf = (name) => cs.find((c) => c.tabs.includes(name)) || {}
+const food = groupOf('Pasta')
+const code = groupOf('JavaScript')
+ok(!food.rest && ['Lasagna', 'Risotto'].every((t) => food.tabs.includes(t)), 'food pages grouped across windows', JSON.stringify(food))
+ok(!code.rest && ['Python (programming language)', 'Rust (programming language)'].every((t) => code.tabs.includes(t)), 'code pages grouped across windows', JSON.stringify(code))
+ok(food !== code && !food.tabs.some((t) => code.tabs.includes(t)), 'tabs sharing a window are not grouped against their text')
+ok(groupOf('Taj Mahal').rest, 'a page like no other is listed apart', JSON.stringify(groupOf('Taj Mahal')))
+ok(food.name && food.name.split(', ').length <= 3, 'groups are named', food.name)
+ok(new Set(food.wins).size === 2, 'tabs show which window they are in', JSON.stringify(food.wins))
+ok(await panel.isHidden('#searchbar'), 'search controls are hidden in the categories view')
+
+await panel.locator('#cats .cattab', { hasText: 'Risotto' }).click()
+await panel.waitForTimeout(300)
+const catFront = await panel.evaluate(() => chrome.tabs.query({ active: true, lastFocusedWindow: true }).then((t) => (t[0] || {}).title))
+ok(/^Risotto/.test(catFront || ''), 'clicking a tab in a group switches to it', catFront)
+
+// Chrome's built-in model, faked: the view asks it to name each group
+await panel.addInitScript(() => {
+  window.__prompts = []
+  globalThis.LanguageModel = {
+    availability: async () => 'available',
+    create: async () => ({
+      clone: async () => ({
+        prompt: async (text) => {
+          window.__prompts.push(text)
+          return JSON.stringify({ name: /Pasta/.test(text) ? 'Italian Cooking' : /JavaScript/.test(text) ? 'Programming Languages' : 'Something' })
+        },
+        destroy() {},
+      }),
+    }),
+  }
+})
+await reopen()
+await panel.waitForSelector('#cats section.cat', { timeout: 10000 })
+ok(!(await panel.isHidden('#cats')), 'reopened panel keeps the categories view')
+await panel.waitForFunction(() => /Italian Cooking/.test(document.querySelector('#cats').textContent), null, { timeout: 10000, polling: 100 })
+cs = await cats()
+ok(groupOf('Pasta').name === 'Italian Cooking', 'the model names the food group', JSON.stringify(groupOf('Pasta')))
+ok(groupOf('Rust (programming language)').name === 'Programming Languages', 'the model names the code group', JSON.stringify(groupOf('Rust (programming language)')))
+ok(groupOf('Pasta').why !== '', 'the telling words are shown under a model name', JSON.stringify(groupOf('Pasta')))
+const prompts = await panel.evaluate(() => window.__prompts)
+ok(prompts.some((x) => x.includes('Lasagna - Wikipedia')), 'the model is given the tab titles', prompts[0])
+const asked = prompts.length
+await panel.evaluate(() => paintCats())
+await panel.waitForTimeout(300)
+ok((await panel.evaluate(() => window.__prompts.length)) === asked, 'a named group is not asked about again')
+
+await panel.click('#v-search')
+await panel.evaluate((ids) => Promise.all(ids.map((w) => chrome.windows.remove(w))), winIds)
+await panel.waitForTimeout(500)
 
 // --- pdfs -----------------------------------------------------------------
 const openPdf = async (p) => {

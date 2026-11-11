@@ -93,6 +93,33 @@ button.opt.on {
   color: #fff;
 }
 
+button.view {
+  border-color: transparent;
+  background: none;
+  color: var(--dim);
+}
+
+button.view[aria-selected="true"] {
+  border-color: var(--line);
+  background: var(--field);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+#refresh {
+  margin-left: auto;
+}
+
+#searchbar {
+  margin-top: 6px;
+}
+
+#catnote {
+  margin-top: 6px;
+  color: var(--dim);
+  font-size: 11px;
+}
+
 #count,
 #status {
   color: var(--dim);
@@ -163,6 +190,10 @@ button.opt.on {
 main {
   flex: 1;
   overflow: auto;
+}
+
+main[hidden] {
+  display: none;
 }
 
 .group {
@@ -240,4 +271,45 @@ mark {
 .empty {
   padding: 16px 12px;
   text-align: center;
+}
+
+.cathead {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 8px 2px;
+}
+
+.catname {
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cat.rest .catname {
+  color: var(--dim);
+  font-weight: 400;
+}
+
+.catwhy {
+  padding: 0 8px 4px;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.cattab {
+  padding: 4px 8px 4px 16px;
+  background: none;
+}
+
+.cattab .title {
+  font-weight: 400;
+}
+
+.win {
+  flex: none;
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 10px;
 }
