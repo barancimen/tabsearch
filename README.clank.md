@@ -46,8 +46,16 @@ the domains of your open tabs.
 A bare domain matches on the hostname, so typing `x.com` covers tabs whose URLs
 carry a port. The filter is matched against the tab's own URL, so text a page
 pulls in from an embedded frame on another origin is attributed to the tab you
-are looking at. The filter is not remembered between sessions, so reopening the
-panel never silently hides results.
+are looking at. The filter is kept with the rest of the panel's state (see
+below), and the count says `on x.com` while it applies.
+
+### Panel state
+
+Closing and reopening the panel, in the same window or another one, brings back
+the query, the domain filter, the mode toggles, the open or closed "not
+searchable" list, the selected result and the scroll position. Panels open in
+several windows at once follow each other's query, filter, toggles and list. The
+state is kept in `chrome.storage.local`, so it also survives a browser restart.
 
 ## What gets indexed
 
@@ -123,7 +131,7 @@ scrolling to the match.
 | `tabs` | Read the title, URL and window of each tab |
 | `scripting` | Inject the extractor and the reveal helper |
 | `sidePanel` | Show the search UI next to the page |
-| `storage` | Remember the mode toggles |
+| `storage` | Remember the panel's state between opens and across windows |
 | `<all_urls>` | Read text from any site and download PDFs and suspended pages. There is no narrower permission that can read tabs you are not looking at |
 
 ## Files

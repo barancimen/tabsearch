@@ -33,7 +33,12 @@ const S = {
   flat: [], // one entry per rendered snippet
   rows: [],
   sel: -1,
+  pending: null, // saved selection and scroll, applied by the first paint with results
+  painted: '', // what the results on screen are for
 }
+
+// Tells this panel's saves apart from those of the panels in other windows.
+const ME = Math.random().toString(36).slice(2)
 
 const HTML_ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
 
@@ -61,6 +66,43 @@ function favicon(src) {
   img.addEventListener('error', () => img.remove())
   img.src = src
   return img
+}
+
+function selKey(e) {
+  return e ? e.rec.tabId + ':' + e.hit.i : ''
+}
+
+// The panel's state is saved as it changes, so a panel opened later, in any
+// window, picks up where the last one left off.
+let saveT = 0
+function saveUi(now) {
+  clearTimeout(saveT)
+  const go = () => {
+    const ui = {
+      from: ME,
+      q: Q.value,
+      dom: DOMAIN.value,
+      mode: S.mode,
+      badOpen: S.badOpen,
+      sel: S.pending ? S.pending.sel : selKey(S.flat[S.sel]),
+      scroll: S.pending ? S.pending.scroll : RESULTS.scrollTop,
+    }
+    chrome.storage.local.set({ ui }).catch(() => {})
+  }
+  if (now) go()
+  else saveT = setTimeout(go, 150)
+}
+
+function applyUi(ui) {
+  clearTimeout(Q._t)
+  clearTimeout(DOMAIN._t)
+  Q.value = ui.q || ''
+  DOMAIN.value = ui.dom || ''
+  S.query = Q.value
+  S.domain = normDomain(DOMAIN.value)
+  if (ui.mode) Object.assign(S.mode, ui.mode)
+  for (const k of ['cs', 'ww', 're']) $('#' + k).classList.toggle('on', !!S.mode[k])
+  S.badOpen = !!ui.badOpen
 }
 
 function paintStatus(s) {
@@ -127,6 +169,7 @@ async function paintSummary() {
     btn.setAttribute('aria-expanded', String(S.badOpen))
     btn.addEventListener('click', () => {
       S.badOpen = !S.badOpen
+      saveUi()
       paintSummary()
     })
     STATUS.append(btn)
@@ -537,16 +580,25 @@ function paintDomains() {
 }
 
 function paint() {
+  // A repaint of the same search keeps the selected result and the scroll position.
+  const what = JSON.stringify([S.query, S.domain, S.mode])
+  const same = what === S.painted
+  S.painted = what
+  const top = RESULTS.scrollTop
+  const keep = S.pending ? S.pending.sel : same ? selKey(S.flat[S.sel]) : ''
   RESULTS.textContent = ''
   S.flat = []
   S.rows = []
   S.sel = -1
   const groups = S.groups
   if (!S.query || S.query.length < (S.mode.re ? 1 : 2)) {
+    S.pending = null
     RESULTS.append(el('div', 'empty', 'Type to search the text of every open tab.'))
     return
   }
   if (!groups.length) {
+    // the matches may be in tabs that are still being read
+    if (!S.indexing) S.pending = null
     if (S.domain) {
       const inScope = [...S.cache.values()].filter((r) => domMatch(r, S.domain)).length
       RESULTS.append(
@@ -581,7 +633,11 @@ function paint() {
       const idx = S.flat.length
       S.flat.push({ rec: g.rec, hit: h })
       S.rows.push(row)
-      row.addEventListener('click', () => jump(idx))
+      row.addEventListener('click', () => {
+        S.sel = idx
+        select()
+        jump(idx)
+      })
       sec.append(row)
       shown++
     }
@@ -591,6 +647,13 @@ function paint() {
     frag.append(sec)
   }
   RESULTS.append(frag)
+  if (keep) {
+    S.sel = S.flat.findIndex((e) => selKey(e) === keep)
+    if (S.sel >= 0) S.rows[S.sel].classList.add('sel')
+  }
+  if (S.pending) RESULTS.scrollTop = S.pending.scroll || 0
+  else RESULTS.scrollTop = same ? top : 0
+  S.pending = null
   paintCount(
     shown +
       ' matches in ' +
@@ -657,9 +720,11 @@ async function jump(idx) {
 function select() {
   for (let i = 0; i < S.rows.length; i++) S.rows[i].classList.toggle('sel', i === S.sel)
   if (S.sel >= 0) S.rows[S.sel].scrollIntoView({ block: 'nearest' })
+  saveUi()
 }
 
 Q.addEventListener('input', () => {
+  saveUi()
   clearTimeout(Q._t)
   const go = () => {
     S.query = Q.value
@@ -670,6 +735,7 @@ Q.addEventListener('input', () => {
 })
 
 DOMAIN.addEventListener('input', () => {
+  saveUi()
   clearTimeout(DOMAIN._t)
   const go = () => {
     S.domain = normDomain(DOMAIN.value)
@@ -688,7 +754,7 @@ for (const [key, id] of [
   btn.addEventListener('click', () => {
     S.mode[key] = !S.mode[key]
     btn.classList.toggle('on', S.mode[key])
-    chrome.storage.local.set({ mode: S.mode }).catch(() => {})
+    saveUi()
     runSearch()
   })
 }
@@ -712,6 +778,18 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowDown') S.sel = Math.min(S.flat.length - 1, S.sel + 1)
   else S.sel = Math.max(0, S.sel - 1)
   select()
+})
+
+RESULTS.addEventListener('scroll', () => saveUi(), { passive: true })
+addEventListener('pagehide', () => saveUi(true))
+
+// A change made in the panel of another window shows up here too.
+chrome.storage.onChanged.addListener((changes, area) => {
+  const ui = area === 'local' && changes.ui && changes.ui.newValue
+  if (!ui || ui.from === ME) return
+  applyUi(ui)
+  if (!S.indexing) paintSummary()
+  runSearch()
 })
 
 chrome.tabs.onUpdated.addListener((id, info, tab) => {
@@ -746,13 +824,14 @@ chrome.tabs.onReplaced.addListener((added, removed) => {
 
 ;(async function init() {
   try {
-    const { mode } = await chrome.storage.local.get('mode')
-    if (mode) {
-      Object.assign(S.mode, mode)
-      for (const k of ['cs', 'ww', 're']) $('#' + k).classList.toggle('on', !!S.mode[k])
-    }
+    // "mode" is where versions before the saved panel state kept the options
+    const { ui, mode } = await chrome.storage.local.get(['ui', 'mode'])
+    const saved = ui || { mode }
+    applyUi(saved)
+    S.pending = { sel: saved.sel || '', scroll: saved.scroll || 0 }
   } catch (e) {}
   Q.focus()
-  paint()
+  // with a saved query, the first paint waits for the saved index
+  if (!S.query) paint()
   await indexAll()
 })()

@@ -391,6 +391,61 @@ await reopen()
 s = await settle('addedafterindex')
 ok(s.count === '0 matches', 'tab reloaded while the panel was closed is re-read', s.count)
 
+// --- panel state survives closing the panel --------------------------------
+await panel.setViewportSize({ width: 320, height: 260 })
+await panel.click('#re')
+s = await settle('e', '')
+await panel.click('#status button')
+await panel.focus('#q')
+await panel.keyboard.press('ArrowDown')
+await panel.keyboard.press('ArrowDown')
+await panel.waitForTimeout(200)
+const scrollable = await panel.evaluate(() => {
+  const r = document.querySelector('#results')
+  r.scrollTop = 60
+  return r.scrollHeight - r.clientHeight
+})
+ok(scrollable >= 60, 'results scroll in the small panel', String(scrollable))
+await panel.waitForTimeout(400)
+const ui = () =>
+  panel.evaluate(() => ({
+    q: document.querySelector('#q').value,
+    dom: document.querySelector('#dom').value,
+    re: document.querySelector('#re').classList.contains('on'),
+    open: !document.querySelector('#bad').hidden,
+    sel: document.querySelector('.hit.sel') ? document.querySelector('.hit.sel').textContent : null,
+    selIndex: S.sel,
+    scroll: document.querySelector('#results').scrollTop,
+  }))
+const before = await ui()
+await panel.goto('about:blank')
+await reopen()
+await panel.waitForTimeout(400)
+const after = await ui()
+ok(after.q === 'e', 'reopened panel keeps the query', JSON.stringify(after))
+ok(after.re, 'reopened panel keeps the options', JSON.stringify(after))
+ok(after.open, 'reopened panel keeps the dropdown open', JSON.stringify(after))
+ok(before.selIndex === 1 && after.sel === before.sel, 'reopened panel keeps the selected result', JSON.stringify([before, after]))
+ok(after.scroll === before.scroll && before.scroll === 60, 'reopened panel keeps the scroll position', JSON.stringify([before.scroll, after.scroll]))
+ok((await text('#count')) !== '', 'reopened panel shows the results', await text('#count'))
+
+const panel2 = await ctx.newPage()
+await panel2.goto(`chrome-extension://${id}/sidepanel.html`)
+await panel2.waitForTimeout(400)
+ok((await panel2.inputValue('#q')) === 'e', 'a panel in another tab or window starts from the same state')
+await panel2.fill('#dom', 'localhost')
+await panel2.fill('#q', 'only one needle')
+await panel2.click('#re')
+await panel.waitForTimeout(500)
+const synced = await ui()
+ok(synced.q === 'only one needle' && synced.dom === 'localhost' && !synced.re, 'open panels follow each other', JSON.stringify(synced))
+ok((await text('#count')) === '1 matches in 1 tabs on localhost', 'followed change reruns the search', await text('#count'))
+await panel2.close()
+await panel.click('#status button')
+await panel.fill('#dom', '')
+await panel.setViewportSize({ width: 1280, height: 720 })
+await panel.waitForTimeout(300)
+
 // --- pdfs -----------------------------------------------------------------
 const openPdf = async (p) => {
   const page = await ctx.newPage()
