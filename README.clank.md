@@ -101,12 +101,26 @@ Group names:
   group's tabs and little in the others, written as the pages write them
   ("GitHub", "NASA").
 - If Chrome's built-in model (Gemini Nano, the `LanguageModel` Prompt API) is
-  available on the device, the view asks it to name each group from the tab
-  titles and those words, such as "Italian Cooking". The words are then shown
-  under the name. Everything runs on the device. If the model still needs
-  downloading, a button offers it, since Chrome only starts that download after
-  a click. Names are remembered until the browser restarts, and a group whose
-  tabs change is named again.
+  available on the device, it names the groups, such as "Italian Cooking", and
+  the telling words are shown under the name. Everything runs on the device. If
+  the model still needs downloading, a button offers it, since Chrome only
+  starts that download after a click.
+  - All groups that need a name go to the model in one request, or as few as fit
+    in its context, so it can keep the names apart. The names other groups
+    already have are listed as taken. A duplicate that slips through gets the
+    group's top word added.
+  - Each tab is given as its title, its site and its opening sentence: the meta
+    description when the page has one, otherwise the first sentence of eight or
+    more words. Up to 10 tabs per group are shown, or 5 without sentences if the
+    group would not fit otherwise. One worked example in the session sets the
+    format and the level of detail.
+- **Names stay put.** A group keeps its name while at least half of its tabs
+  had that name and at least half of the named tabs are still in it, so a tab
+  joining or leaving does not rename it. Names are tied to URLs (tab ids change
+  on restart) and saved in `chrome.storage.local`, so they survive a browser
+  restart. The 300 most recently used are kept. Groups with an incognito tab
+  are named for the session only, and a request that failed is retried in the
+  next session.
 
 The thresholds were tuned on Wikipedia articles from six subjects: full
 articles, and the same articles cut to 8,000 and 3,000 characters to stand in
