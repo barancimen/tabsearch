@@ -67,7 +67,7 @@ redrawn as tabs open, close, load or move.
 
 How tabs are grouped (`cluster.js`):
 
-- Each tab is described by its title (weighted 3x), the indexed text, two-word
+- Each tab is described by its title (weighted 3x by default), the indexed text, two-word
   phrases that recur in it, and a little by its site. Stop words, words that
   every website repeats ("login", "cookies"), numbers and years are dropped, and
   everyday English words count for less. A tab that could not be read is grouped
@@ -102,6 +102,30 @@ Group names:
   Forms of one word ("Italy", "Italian") are not repeated. Names are computed
   each time, so a group's name can change as tabs join or leave it. No AI model
   is used, and nothing leaves the computer.
+
+### Adjustments
+
+**Adjustments**, under the view buttons in Categories, opens seven sliders. Each
+regroups the tabs as it moves and has a plain-English description on hover. A
+moved slider shows a *default* button, and *Set all to default* resets them all.
+The settings are saved and shared by the panels of every window, and Search
+ignores them.
+
+| Slider | Setting in `Cluster.DEFAULTS` | Default |
+|---|---|---|
+| How alike tabs must be | `join`, the average resemblance needed to merge | 0.02 (0.005–0.2, moves by ratios) |
+| How much sharing a window counts | `sameWindow`, the most a shared window multiplies a resemblance by | ×1.5 (1–3; 1 ignores windows) |
+| How much titles count | `titleWeight`, body words a title word is worth | ×3 (1–10) |
+| How much the website counts | `siteWeight` | 1 (0–3; 0 ignores the site) |
+| How much everyday words count | `genericWeight` | 0.3 (0–1) |
+| Words compared per tab | `vectorTerms` | 100 (20–400) |
+| Words in each name | `labelTerms` | 3 (1–5) |
+
+They are applied when grouping, not when counting: a tab's saved counts keep
+title and text apart and unweighted (`[term, times in text, times in title]`),
+so moving a slider never re-reads or recounts a page. Which 400 terms a page
+keeps, and whether a phrase recurs often enough to count, are decided with the
+default weights.
 
 The thresholds were tuned on Wikipedia articles from six subjects: full
 articles, and the same articles cut to 8,000 and 3,000 characters to stand in
@@ -208,8 +232,9 @@ Boots a real Chromium with the extension loaded, serves pages and PDFs with
 known text on four loopback hostnames (`127.0.0.1`, `localhost`,
 `foo.localhost`, `[::1]`), suspends some of the tabs, drives the side panel, and
 asserts on the rendered results. For Categories it opens Wikipedia articles in
-two windows that mix subjects.
-`npm run test:unit` runs only the clustering test, in about a second.
+two windows that mix subjects, and moves the Adjustments sliders.
+`npm run test:unit` runs only the clustering test, in about a second, including
+what each setting does to the grouping.
 
     npm install
     npx playwright install chromium

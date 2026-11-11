@@ -5,15 +5,23 @@
 // common are never put together because of where they sit.
 const Cluster = (() => {
   // Bump when terms() changes, so word counts saved by an older version are redone.
-  const VERSION = 1
-  const TITLE_WEIGHT = 3 // a title word counts as this many body words
+  const VERSION = 2
   const KEEP_PER_DOC = 400 // most frequent terms kept from each page
-  const VECTOR_TERMS = 100 // highest weighted terms that represent a page
-  // Resemblance between tabs of one window is scaled by up to this much. Less
-  // when most tabs share a window: then sharing one says little.
-  const SAME_WINDOW = 1.5
-  const JOIN = 0.02 // groups merge while their average resemblance is at least this
-  const LABEL_TERMS = 3
+  const PHRASE_BONUS = 1.25 // a two word phrase is preferred this much in a name
+
+  // The settings group() takes, each of which the panel's sliders can change.
+  // They are applied at grouping time, so changing one never recounts a page.
+  const DEFAULTS = {
+    join: 0.02, // groups merge while their average resemblance is at least this
+    // Resemblance between tabs of one window is scaled by up to this much. Less
+    // when most tabs share a window: then sharing one says little.
+    sameWindow: 1.5,
+    titleWeight: 3, // a title word counts as this many body words
+    genericWeight: 0.3, // an everyday word (GENERIC below) counts this much of a word
+    siteWeight: 1, // how much the site counts, as a word seen this many times
+    vectorTerms: 100, // highest weighted terms that represent a page
+    labelTerms: 3, // words in a group's name
+  }
 
   // Common English words, and words every website repeats, carry no topic.
   const STOP = new Set(
@@ -85,7 +93,6 @@ const Cluster = (() => {
     unless unlike usual usually value variety various vary view visible whole wide widely word work world worth
     write written wrong`.split(/\s+/)
   )
-  const GENERIC_WEIGHT = 0.3
 
   const WORD = /[\p{L}\p{N}][\p{L}\p{N}'’]*/gu
   const BREAK = /[^\s'"’“”‘-]/ // punctuation between two words ends a phrase
@@ -111,8 +118,8 @@ const Cluster = (() => {
     return stem(lower)
   }
 
-  // Counts words and two word phrases ("machine learning") into tf.
-  function count(tf, text, weight) {
+  // Counts words into tf, and returns the counts of two word phrases ("machine learning").
+  function count(tf, text) {
     let prev = null
     let end = 0
     const phrases = new Map()
@@ -126,37 +133,67 @@ const Cluster = (() => {
         prev = null
         continue
       }
-      tf.set(t, (tf.get(t) || 0) + (GENERIC.has(t) ? weight * GENERIC_WEIGHT : weight))
+      tf.set(t, (tf.get(t) || 0) + 1)
       if (prev && prev !== t) {
         const p = prev + ' ' + t
-        phrases.set(p, (phrases.get(p) || 0) + weight)
+        phrases.set(p, (phrases.get(p) || 0) + 1)
       }
       prev = t
     }
     return phrases
   }
 
-  // The terms of one page with their counts. Cached by the caller per tab.
+  // How often a term counts in a page: [term, times in the text, times in the
+  // title], weighted by the settings.
+  function weight([t, body, title], p) {
+    if (t[0] === '@') return p.siteWeight * body
+    const c = body + p.titleWeight * (title || 0)
+    return GENERIC.has(t) ? c * p.genericWeight : c
+  }
+
+  // The terms of one page, as [term, times in the text, times in the title].
+  // Cached by the caller per tab. The counts are kept apart and unweighted so
+  // that the settings can weigh them at grouping time.
   function terms(title, text, host) {
-    const tf = new Map()
-    const phrases = count(tf, title || '', TITLE_WEIGHT)
-    for (const [p, n] of count(tf, text || '', 1)) phrases.set(p, (phrases.get(p) || 0) + n)
-    // a phrase seen once is usually a coincidence of word order
-    for (const [p, n] of phrases) if (n >= 2) tf.set(p, n)
-    const kept = [...tf].sort((a, b) => b[1] - a[1]).slice(0, KEEP_PER_DOC)
+    const inTitle = new Map()
+    const inText = new Map()
+    const titlePhrases = count(inTitle, title || '')
+    const textPhrases = count(inText, text || '')
+    const all = new Map()
+    for (const [t, n] of inText) all.set(t, [t, n, 0])
+    for (const [t, n] of inTitle) {
+      if (all.has(t)) all.get(t)[2] = n
+      else all.set(t, [t, 0, n])
+    }
+    const both = new Set([...titlePhrases.keys(), ...textPhrases.keys()])
+    for (const ph of both) {
+      const e = [ph, textPhrases.get(ph) || 0, titlePhrases.get(ph) || 0]
+      // a phrase seen once is usually a coincidence of word order
+      if (weight(e, DEFAULTS) >= 2) all.set(ph, e)
+    }
+    const kept = [...all.values()]
+      .sort((a, b) => weight(b, DEFAULTS) - weight(a, DEFAULTS))
+      .slice(0, KEEP_PER_DOC)
     // the site helps a little: two pages on one site often share a subject
-    if (host) kept.push(['@' + host.replace(/^www\./, ''), 1])
+    if (host) kept.push(['@' + host.replace(/^www\./, ''), 1, 0])
     return kept
   }
 
   // Weighted, unit length vectors: frequent in the page, rare across the tabs.
-  function vectors(docs) {
+  function vectors(docs, p = DEFAULTS) {
     const df = new Map()
     for (const d of docs) for (const [t] of d.terms) df.set(t, (df.get(t) || 0) + 1)
     const n = docs.length
     return docs.map((d) => {
-      let v = d.terms.map(([t, c]) => [t, (1 + Math.log(c)) * Math.log((n + 1) / (df.get(t) + 0.5))])
-      v = v.filter((x) => x[1] > 0).sort((a, b) => b[1] - a[1]).slice(0, VECTOR_TERMS)
+      let v = []
+      for (const e of d.terms) {
+        const c = weight(e, p)
+        if (c <= 0) continue
+        // sublinear counts for words; the site is seen once, so its weight is used as it is
+        const tf = e[0][0] === '@' ? c : 1 + Math.log(c)
+        v.push([e[0], tf * Math.log((n + 1) / (df.get(e[0]) + 0.5))])
+      }
+      v = v.filter((x) => x[1] > 0).sort((a, b) => b[1] - a[1]).slice(0, p.vectorTerms)
       const norm = Math.hypot(...v.map((x) => x[1])) || 1
       return new Map(v.map(([t, w]) => [t, w / norm]))
     })
@@ -174,7 +211,7 @@ const Cluster = (() => {
   }
 
   // How alike each pair of tabs is, from 0 to about 1.
-  function similarity(docs, vecs) {
+  function similarity(docs, vecs, p = DEFAULTS) {
     const n = docs.length
     const sim = Array.from({ length: n }, () => new Float64Array(n))
     const postings = new Map()
@@ -193,7 +230,7 @@ const Cluster = (() => {
         }
       }
     }
-    const boost = 1 + (SAME_WINDOW - 1) * (1 - sharedWindow(docs))
+    const boost = 1 + (p.sameWindow - 1) * (1 - sharedWindow(docs))
     for (let i = 0; i < n; i++) {
       for (let j = 0; j < n; j++) {
         if (i !== j && docs[i].windowId === docs[j].windowId) sim[i][j] *= boost
@@ -204,13 +241,13 @@ const Cluster = (() => {
 
   // Average linkage: repeatedly join the two groups whose tabs are most alike on
   // average, until no two groups are alike enough.
-  function link(sim) {
+  function link(sim, join) {
     const n = sim.length
     const groups = Array.from({ length: n }, (_, i) => [i])
     const c = sim.map((row) => Float64Array.from(row))
     const alive = new Set(groups.keys())
     for (;;) {
-      let best = JOIN
+      let best = join
       let bi = -1
       let bj = -1
       for (const i of alive) {
@@ -245,7 +282,7 @@ const Cluster = (() => {
 
   // The terms that best describe a group: weighty in its tabs, shared by most
   // of them, and not just as weighty everywhere else.
-  function keywords(members, vecs) {
+  function keywords(members, vecs, count) {
     const inside = new Set(members)
     const score = new Map()
     const cover = new Map()
@@ -268,14 +305,14 @@ const Cluster = (() => {
       .map(([t, s]) => {
         const share = cover.get(t) / members.length
         let x = (s / members.length) * share - (others ? (outside.get(t) || 0) / others : 0)
-        if (t.includes(' ')) x *= 1.25
+        if (t.includes(' ')) x *= PHRASE_BONUS
         return [t, x]
       })
       .filter((x) => x[1] > 0)
       .sort((a, b) => b[1] - a[1])
     const picked = []
     for (const [t] of ranked) {
-      if (picked.length >= LABEL_TERMS) break
+      if (picked.length >= count) break
       const words = t.split(' ')
       // "machine learning" makes "machine" and "learning" redundant, and "Italy" "Italian"
       if (picked.some((p) => p.split(' ').some((a) => words.some((b) => akin(a, b))))) continue
@@ -305,13 +342,27 @@ const Cluster = (() => {
     return w === w.toLowerCase() ? w.replace(/(^|[\s-])\p{L}/gu, (c) => c.toUpperCase()) : w
   }
 
+  // Settings with anything missing or out of place taken from DEFAULTS.
+  function settings(given) {
+    const p = { ...DEFAULTS }
+    for (const k in DEFAULTS) {
+      const v = given && given[k]
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 0) p[k] = v
+    }
+    p.vectorTerms = Math.max(1, Math.round(p.vectorTerms))
+    p.labelTerms = Math.max(1, Math.round(p.labelTerms))
+    return p
+  }
+
   // docs: [{ id, windowId, index, title, text, terms }] where terms comes from
-  // terms(). Returns groups of two or more tabs, largest first, and the tabs
-  // that resemble nothing else.
-  function group(docs) {
+  // terms(). given: settings that differ from DEFAULTS. Returns groups of two or
+  // more tabs, largest first, and the tabs that resemble nothing else.
+  function group(docs, given) {
     if (!docs.length) return { groups: [], rest: [] }
-    const vecs = vectors(docs)
-    const parts = link(similarity(docs, vecs))
+    const p = settings(given)
+    const vecs = vectors(docs, p)
+    const parts = link(similarity(docs, vecs, p), p.join)
+    const labelTerms = p.labelTerms // the loop below reuses the name p
     const order = (a, b) => docs[a].windowId - docs[b].windowId || docs[a].index - docs[b].index
     const groups = []
     const rest = []
@@ -321,7 +372,7 @@ const Cluster = (() => {
         rest.push(docs[p[0]])
         continue
       }
-      const keys = keywords(p, vecs)
+      const keys = keywords(p, vecs, labelTerms)
       const titles = p.map((i) => docs[i].title || '')
       const words = keys.map((t) => display(t, titles.concat(p.map((i) => docs[i].text || ''))))
       groups.push({ tabs: p.map((i) => docs[i]), keywords: words, label: words.join(', ') })
@@ -331,7 +382,7 @@ const Cluster = (() => {
     return { groups, rest }
   }
 
-  return { terms, group, vectors, similarity, SAME_WINDOW, JOIN, VERSION }
+  return { terms, group, vectors, similarity, settings, DEFAULTS, VERSION }
 })()
 
 if (typeof module === 'object' && module.exports) module.exports = Cluster

@@ -90,6 +90,7 @@ function saveUi(now) {
       scroll: S.pending ? S.pending.scroll : RESULTS.scrollTop,
       view: S.view,
       catsScroll: C.pendingScroll != null ? C.pendingScroll : CATS.scrollTop,
+      catOpts: $('#catopts').open,
     }
     chrome.storage.local.set({ ui }).catch(() => {})
   }
@@ -108,6 +109,7 @@ function applyUi(ui) {
   for (const k of ['cs', 'ww', 're']) $('#' + k).classList.toggle('on', !!S.mode[k])
   S.badOpen = !!ui.badOpen
   S.view = ui.view === 'cats' ? 'cats' : 'search'
+  $('#catopts').open = !!ui.catOpts
 }
 
 // Shows the Search or the Categories view, whichever S.view says.
@@ -116,6 +118,7 @@ function showView(draw = true) {
   $('#v-search').setAttribute('aria-selected', String(!cats))
   $('#v-cats').setAttribute('aria-selected', String(cats))
   SEARCHBAR.hidden = cats
+  $('#catopts').hidden = !cats
   RESULTS.hidden = cats
   CATS.hidden = !cats
   if (cats && draw) paintCats()

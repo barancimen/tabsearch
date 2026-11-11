@@ -301,3 +301,74 @@ mark {
   color: var(--dim);
   font-size: 10px;
 }
+
+#catopts {
+  margin-top: 6px;
+}
+
+#catopts summary {
+  width: fit-content;
+  color: var(--dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#catopts summary:hover {
+  color: var(--fg);
+}
+
+#catsliders {
+  max-height: 45vh;
+  overflow: auto;
+}
+
+.setting {
+  margin-top: 6px;
+}
+
+.settop {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.setname {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.setval {
+  flex: none;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.setdef {
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.setting input[type="range"] {
+  display: block;
+  width: 100%;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+#catopts .optbar {
+  justify-content: flex-end;
+}
+
+#catreset {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+#catreset:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

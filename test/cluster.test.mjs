@@ -105,6 +105,34 @@ const strangers = [
 ]
 ok(Cluster.group(strangers).groups.length === 0, 'tabs with nothing in common stay apart in one window')
 
+// the settings the panel's sliders change
+const groupsWith = (p) => Cluster.group(docs((t, i) => i), p)
+ok(shape(groupsWith({})) === want && shape(groupsWith(Cluster.DEFAULTS)) === want, 'default settings give the same groups')
+ok(groupsWith({ join: 0.2 }).groups.length < apart.groups.length, 'a stricter join makes fewer groups', shape(groupsWith({ join: 0.2 })))
+ok(groupsWith({ join: 0.005 }).rest.length <= apart.rest.length, 'a looser join leaves no more tabs alone')
+ok(groupsWith({ labelTerms: 1 }).groups.every((g) => g.keywords.length === 1), 'one word names')
+ok(groupsWith({ labelTerms: 5 }).groups.some((g) => g.keywords.length > 3), 'five word names')
+for (const p of [{ titleWeight: 1 }, { titleWeight: 10 }, { genericWeight: 0 }, { genericWeight: 1 }, { siteWeight: 0 }, { siteWeight: 3 }, { vectorTerms: 400 }]) {
+  ok(shape(groupsWith(p)) === want, 'clear-cut groups survive ' + JSON.stringify(p), shape(groupsWith(p)))
+}
+ok(groupsWith({ vectorTerms: 40 }).rest.length > apart.rest.length, 'comparing fewer words leaves more tabs alone')
+ok(Cluster.settings({ join: -1, labelTerms: 'x', vectorTerms: 2.6 }).join === Cluster.DEFAULTS.join, 'a bad setting falls back to its default')
+ok(Cluster.settings({ vectorTerms: 2.6 }).vectorTerms === 3, 'counts are whole numbers')
+// windows ignored: the faint pair stays apart even in one window
+function faintIn(sameWindow, p) {
+  const uniq = (q, n) => Array.from({ length: n }, (_, i) => [q + i, 1])
+  const d = [
+    { id: 1, windowId: 1, index: 0, title: 'P', text: '', terms: [['shared', 1], ...uniq('p', 27)] },
+    { id: 2, windowId: sameWindow ? 1 : 2, index: 1, title: 'Q', text: '', terms: [['shared', 1], ...uniq('q', 27)] },
+  ]
+  for (let i = 0; i < 4; i++) d.push({ id: 10 + i, windowId: 3 + (i % 2), index: i, title: 'F' + i, text: '', terms: uniq('f' + i + '_', 28) })
+  return Cluster.group(d, p).groups.length
+}
+ok(faintIn(true, { sameWindow: 1 }) === 0, 'with windows at ×1, one window does not group a faint pair')
+// a title word counts more as the title weight rises
+const tw = (w) => new Map(Cluster.vectors([{ terms: Cluster.terms('Quokka', 'wombat wombat', '') }, { terms: [['zzz', 1]] }], { ...Cluster.DEFAULTS, titleWeight: w })[0])
+ok(tw(10).get('quokka') > tw(1).get('quokka'), 'a higher title weight weighs title words more')
+
 ok(Cluster.group([]).groups.length === 0, 'no tabs')
 const lone = Cluster.group([{ id: 1, windowId: 1, index: 0, title: 'New Tab', text: '', terms: Cluster.terms('New Tab', '', '') }])
 ok(lone.groups.length === 0 && lone.rest.length === 1, 'a single tab is left on its own')
