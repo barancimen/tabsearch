@@ -7,7 +7,7 @@ const CATS = $('#cats')
 const CATNOTE = $('#catnote')
 const CATS_MS = 600 // regrouping is coalesced to one per this interval
 const EMBED_VERSION = 1 // bump when embedInput() changes, so vectors are made again
-const EMBED_BATCH = 4 // tabs sent to the model at a time
+const EMBED_BATCH = 2 // tabs sent to the model at a time; the groups are redrawn between batches
 
 const C = {
   by: 'subject', // how the view groups tabs: by subject or by window
@@ -26,6 +26,7 @@ const C = {
   embedBroken: '', // the model key embedding last failed with, so it is not retried in a loop
   waiting: false, // the view shows that groups are on their way
   draws: 0, // times the groups were drawn, for the tests
+  sawPartial: false, // groups were drawn while some tabs were still being read, for the tests
   collapsed: new Set(), // keys of the folded categories and subgroups
 }
 const MAX_COLLAPSED = 300 // folded groups remembered
@@ -159,6 +160,8 @@ async function embedMissing() {
           C.vecs.set(t.id, { key: keys[i], vec: vecs[i] })
         }
       })
+      // show the groups so far; redraws are coalesced by scheduleCats
+      scheduleCats()
     }
   } catch (e) {
     // the model failed, or was switched and its own state says why
@@ -192,32 +195,35 @@ async function paintCats() {
   const live = new Set(tabs.map((t) => t.id))
   for (const id of C.vecs.keys()) if (!live.has(id)) C.vecs.delete(id)
   const docs = tabs.map(docFor)
-  // Groups are drawn only once every tab is read, the model is loaded and
-  // every tab has its vector, so they do not shift while the work goes on.
-  // Until then the groups already on screen stay, or a message says why
-  // there are none yet.
-  if (busy(docs)) {
+  const m = Model.M
+  // The model takes a few seconds to load. Rather than group by words and
+  // then switch to meaning, the view waits for it, keeping what it showed.
+  if (!m.checked || m.state === 'loading') {
     showNote()
     if ((!C.shown || C.shownBy !== 'subject') && !C.waiting) {
       C.waiting = true
       C.shown = ''
       CATS.textContent = ''
-      CATS.append(el('div', 'empty', 'The groups will show here once every tab has been read.'))
+      CATS.append(el('div', 'empty', 'The groups will show here once the model has loaded.'))
     }
     return
   }
-  drawCats(Cluster.group(docs, C.params), tabs)
-}
-
-// Whether the tabs are still being read, the model loaded, or tabs embedded.
-// Starts the embedding of tabs that have no vector yet.
-function busy(docs) {
-  const m = Model.M
-  if (S.indexing || !m.checked || m.state === 'loading') return true
-  if (m.state !== 'ready' || C.embedBroken === m.key) return false
-  if (!docs.some((d) => !d.vec && !d.skip)) return false
-  embedMissing()
-  return true
+  // Groups are drawn as the work goes on: from the tabs read so far, and once
+  // the model is ready, from the tabs embedded so far. Tabs still waiting for
+  // their vector are listed apart until they have one.
+  let ready = docs
+  let pending = []
+  if (m.state === 'ready' && C.embedBroken !== m.key) {
+    pending = docs.filter((d) => !d.vec && !d.skip)
+    if (pending.length) {
+      embedMissing()
+      ready = docs.filter((d) => d.vec || d.skip)
+    }
+  }
+  const r = Cluster.group(ready, C.params)
+  if (pending.length) r.mode = 'meaning'
+  r.pending = pending
+  drawCats(r, tabs)
 }
 
 // --- Drawing ---
@@ -238,7 +244,7 @@ function onlyDomain(r) {
     const subgroups = c.subgroups.map((s) => ({ ...s, tabs: keep(s.tabs) })).filter((s) => s.tabs.length)
     categories.push({ ...c, tabs, subgroups, loose: keep(c.loose) })
   }
-  return { ...r, categories, rest: keep(r.rest) }
+  return { ...r, categories, rest: keep(r.rest), pending: keep(r.pending) }
 }
 
 function catRow(d, wins, r, byId) {
@@ -318,6 +324,7 @@ function drawCats(all, tabs) {
     S.domain,
     r.categories.map((c) => [c.label, ids(c.loose), c.subgroups.map((s) => [s.label, ids(s.tabs)])]),
     ids(r.rest),
+    ids(r.pending),
     [...r.duplicates.keys()],
     [...wins],
   ])
@@ -332,13 +339,14 @@ function drawCats(all, tabs) {
     CATS.append(el('div', 'empty', 'No open tabs.'))
     return
   }
-  if (S.domain && !r.categories.length && !r.rest.length) {
+  if (S.domain && !r.categories.length && !r.rest.length && !r.pending.length) {
     CATS.append(el('div', 'empty', 'No open tab is on ' + S.domain + '.'))
     return
   }
-  if (!r.categories.length && !S.domain) {
+  if (!r.categories.length && !S.domain && !r.pending.length) {
     CATS.append(el('div', 'empty', 'No two tabs are about the same thing.'))
   }
+  if (r.pending.length && (r.categories.length || r.rest.length)) C.sawPartial = true
   const byId = new Map(tabs.map((t) => [t.id, t]))
   const frag = document.createDocumentFragment()
   for (const c of r.categories) {
@@ -368,6 +376,14 @@ function drawCats(all, tabs) {
     const rest = foldable('cathead', 'Unlike the others', r.rest.length, 'rest')
     for (const d of r.rest) rest.body.append(catRow(d, wins, r, byId))
     sec.append(rest.box)
+    frag.append(sec)
+  }
+  if (r.pending.length) {
+    const sec = el('section', 'group cat rest pending')
+    const help = 'Tabs the model has not read yet. They join the groups above as it reads them.'
+    const wait = foldable('cathead', 'Still being read', r.pending.length, 'pending', help)
+    for (const d of r.pending) wait.body.append(catRow(d, wins, r, byId))
+    sec.append(wait.box)
     frag.append(sec)
   }
   CATS.append(frag)
@@ -463,7 +479,7 @@ function showNote() {
   if (m.state === 'downloading') s = `Downloading the model: ${mb(m.progress)} of ${mb(Model.DOWNLOAD_BYTES)} MB.`
   else if (S.indexing) s = `Reading tabs: ${S.done} of ${S.total}.`
   else if (m.state === 'loading' || (m.started && !m.checked)) s = 'Loading the model.'
-  else if (m.state === 'ready' && C.embedLeft) s = `Reading the meaning of ${C.embedLeft} more tabs.`
+  else if (m.state === 'ready' && C.embedLeft) s = `Grouped by meaning so far. Reading the meaning of ${C.embedLeft} more tabs.`
   else if (C.mode === 'meaning') s = 'Grouped by meaning.'
   else if (m.state === 'error') s = 'The model could not be loaded, so tabs are grouped by the words they share. See Adjustments.'
   else if (m.state === 'ready') s = 'The model could not read every tab, so tabs are grouped by the words they share.'

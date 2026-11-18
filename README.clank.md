@@ -84,12 +84,17 @@ is marked "Duplicate", and hovering the mark names the other tab. Click a tab
 to switch to it. Click a category or subgroup's name or triangle, or press
 Enter on it, to fold or unfold it. Folded groups are remembered by name.
 
-The groups are drawn only once every tab has been read, the model has loaded
-and every tab has its vector, so they don't shift while that work goes on.
-Until then the line above the groups says what is being done. Later changes,
-such as a new tab or a Reindex, leave the groups on screen as they are until
-the new grouping is ready. A count of unread items at the start of a title, as
-in "(3) Home / X", is ignored, so a notification doesn't count as a change.
+The groups are drawn as the work goes on, at most every 0.6 s: from the tabs
+read so far, and once the model is ready, from the tabs it has embedded so far.
+Tabs still waiting for the model are listed last under "Still being read" and
+join the groups as it reads them, two at a time. The line above the groups says
+what is being done. While the model loads, which takes a few seconds, the view
+waits rather than show groups by words and then switch to meaning. A count of
+unread items at the start of a title, as in "(3) Home / X", is ignored, so a
+notification doesn't count as a change.
+
+In Subjects, category headings are a darker grey than subgroup headings, and a
+2px line separates two categories.
 
 A line above the groups says how they were made: by meaning, with the model
 below, or by the words the tabs share, when the model is not set up.

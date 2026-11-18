@@ -709,8 +709,6 @@ ok(marker === 'zzsavedmarker', 'reopened panel uses the saved word counts', mark
 await panel.waitForTimeout(CATS_SETTLE)
 cs = await cats()
 ok(groupOf('Pasta').name === food.name, 'reopened panel shows the same groups', JSON.stringify(groupOf('Pasta')))
-const draws = await panel.evaluate(() => C.draws)
-ok(draws === 1, 'a reopened panel draws its groups once, after every tab is read', draws)
 ok((await folded(food.name)).expanded === 'false', 'a folded category stays folded after reopening')
 await panel.focus(`#cats .cathead:has(.catname[title="${food.name}"])`)
 await panel.keyboard.press('Enter')

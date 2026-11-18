@@ -122,6 +122,7 @@ function showView(draw = true) {
   SEARCHBAR.hidden = cats
   RESULTS.hidden = cats
   CATS.hidden = !cats
+  CATS.classList.toggle('subjects', S.view === 'subjects')
   showCatControls()
   if (cats && draw) paintCats()
   focusView()

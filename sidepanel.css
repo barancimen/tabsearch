@@ -7,8 +7,9 @@
   --line: #b9c0ca;
   --field: #f0f2f5;
   --strip: #e9ecf0;
-  --band: #edf0f4; /* every other section in Windows and Subjects */
   --head: #dfe3e9; /* group headings, and tab names in Search */
+  --head-strong: #c5ccd6; /* category headings in Subjects */
+  --rule: #000000; /* the line between two categories in Subjects */
   --head-hover: #d2d8e0;
   --accent: #1747c9;
   --hit: #ffd84d;
@@ -23,8 +24,9 @@
     --line: #5a626e;
     --field: #22262c;
     --strip: #1b1e23;
-    --band: #1e2228;
     --head: #2b3038;
+    --head-strong: #3c444f;
+    --rule: #d5dae1;
     --head-hover: #353b45;
     --accent: #8ab8ff;
     --hit: #806a00;
@@ -604,12 +606,8 @@ mark {
 }
 
 
-/* Sections alternate between white and a light grey band, so the boundary
-   between two groups is easy to see. Headings sit on a darker grey. */
-#cats > section.cat:nth-of-type(even) {
-  background: var(--band);
-}
-
+/* Headings sit on grey. In Subjects, a category's heading is darker than its
+   subgroups', and a 2px line runs between two categories. */
 .cathead,
 .subhead {
   background: var(--head);
@@ -637,4 +635,16 @@ mark {
 
 #results .tabhead:hover {
   background: var(--head-hover);
+}
+
+#cats.subjects .cathead {
+  background: var(--head-strong);
+}
+
+#cats.subjects > section.cat {
+  border-bottom: 0;
+}
+
+#cats.subjects > section.cat + section.cat {
+  border-top: 2px solid var(--rule);
 }
