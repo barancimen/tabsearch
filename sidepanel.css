@@ -122,7 +122,8 @@ button.opt.on {
 
 button.view {
   margin: 0 0 -1px;
-  padding: 9px 6px 8px;
+  /* roomy in a normal panel, down to 6px only near Chrome's narrowest, 320px */
+  padding: 9px clamp(6px, 4vw - 7px, 18px) 8px;
   border: 0;
   font-size: 13.5px;
   border-right: 1px solid var(--line);
