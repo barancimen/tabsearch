@@ -66,7 +66,15 @@ resemble no other tab are listed last under "Unlike the others", along with
 blank tabs and browser pages that have no text. With more than one window open,
 each tab shows which window it is in (`W1`, `W2`, ...). A page open in two tabs
 is marked "Duplicate", and hovering the mark names the other tab. Click a tab
-to switch to it. The groups are redrawn as tabs open, close, load or move.
+to switch to it. Click a category or subgroup's name or triangle, or press
+Enter on it, to fold or unfold it. Folded groups are remembered by name.
+
+The groups are drawn only once every tab has been read, the model has loaded
+and every tab has its vector, so they don't shift while that work goes on.
+Until then the line above the groups says what is being done. Later changes,
+such as a new tab or a Reindex, leave the groups on screen as they are until
+the new grouping is ready. A count of unread items at the start of a title, as
+in "(3) Home / X", is ignored, so a notification doesn't count as a change.
 
 A line above the groups says how they were made: by meaning, with the model
 below, or by the words the tabs share, when the model is not set up.
@@ -98,8 +106,7 @@ on X or Reddit is read without the site's menus, sidebars and footer. Pages
 without either element are read whole. A tab that could not be read is read
 from its title. Each tab's vector is saved in its index record with the model
 and title it was made from, so reopening the panel embeds nothing, and a new
-tab is embedded on its own. While new tabs are embedded the groups on screen
-stay as they are. On this test machine, one slow CPU core, eight tabs took a
+tab is embedded on its own. On this test machine, one slow CPU core, eight tabs took a
 few seconds; a laptop is much faster.
 
 When any tab has no vector, for example while the model loads or when it is

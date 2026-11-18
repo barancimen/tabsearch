@@ -30,6 +30,7 @@ const Model = (() => {
     calls: new Map(),
     nextId: 1,
     started: false,
+    checked: false, // the first look for a model has finished
     onchange: () => {},
   }
 
@@ -188,6 +189,8 @@ const Model = (() => {
         M.folder = modelFolder || ''
       } catch (e) {}
       await load()
+      M.checked = true
+      M.onchange()
     },
 
     async useFolder(path) {

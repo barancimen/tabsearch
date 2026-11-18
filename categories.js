@@ -22,7 +22,11 @@ const C = {
   embedding: false,
   embedLeft: 0, // tabs still to embed in this round
   embedBroken: '', // the model key embedding last failed with, so it is not retried in a loop
+  waiting: false, // the view shows that groups are on their way
+  draws: 0, // times the groups were drawn, for the tests
+  collapsed: new Set(), // keys of the folded categories and subgroups
 }
+const MAX_COLLAPSED = 300 // folded groups remembered
 
 // The sliders under Adjustments. Each changes a setting in Cluster.DEFAULTS.
 // The two thresholds have their own range for each way of measuring, and a
@@ -73,13 +77,17 @@ const LOG_STEPS = 1000 // positions of a log slider
 
 // --- Tabs as the clustering sees them ---
 
+// A tab's title without the unread count some sites put in front, as in
+// "(3) Home / X", so a new notification does not make the tab look new.
+const plainTitle = (t) => (t.title || '').replace(/^\(\d+\+?\)\s*/, '')
+
 // What the model reads for a tab: its title, then the page's own content, or
 // its whole text when no content could be told apart from the rest.
 function embedInput(t, rec) {
-  return ((t.title || '') + '\n' + (rec ? rec.main || rec.text : '')).slice(0, 6000)
+  return (plainTitle(t) + '\n' + (rec ? rec.main || rec.text : '')).slice(0, 6000)
 }
 
-const vecKey = (t) => Model.M.key + '\n' + EMBED_VERSION + '\n' + (t.title || '')
+const vecKey = (t) => Model.M.key + '\n' + EMBED_VERSION + '\n' + plainTitle(t)
 
 // Browser pages and blank tabs with no text are not grouped: their titles say
 // nothing about a subject. Tabs that could not be read but are web pages, such
@@ -101,7 +109,7 @@ function vecFor(t) {
 // so the counts only go stale when the title does.
 function docFor(t) {
   const rec = S.cache.get(t.id)
-  const title = t.title || ''
+  const title = plainTitle(t)
   const doc = {
     id: t.id,
     windowId: t.windowId,
@@ -178,13 +186,31 @@ async function paintCats() {
   const live = new Set(tabs.map((t) => t.id))
   for (const id of C.vecs.keys()) if (!live.has(id)) C.vecs.delete(id)
   const docs = tabs.map(docFor)
-  if (Model.M.state === 'ready' && C.embedBroken !== Model.M.key && docs.some((d) => !d.vec && !d.skip)) {
-    embedMissing()
-    // groups by meaning stay up while the new tabs are read, rather than
-    // switching to words and back
-    if (C.mode === 'meaning') return
+  // Groups are drawn only once every tab is read, the model is loaded and
+  // every tab has its vector, so they do not shift while the work goes on.
+  // Until then the groups already on screen stay, or a message says why
+  // there are none yet.
+  if (busy(docs)) {
+    showNote()
+    if (!C.shown && !C.waiting) {
+      C.waiting = true
+      CATS.textContent = ''
+      CATS.append(el('div', 'empty', 'The groups will show here once every tab has been read.'))
+    }
+    return
   }
   drawCats(Cluster.group(docs, C.params), tabs)
+}
+
+// Whether the tabs are still being read, the model loaded, or tabs embedded.
+// Starts the embedding of tabs that have no vector yet.
+function busy(docs) {
+  const m = Model.M
+  if (S.indexing || !m.checked || m.state === 'loading') return true
+  if (m.state !== 'ready' || C.embedBroken === m.key) return false
+  if (!docs.some((d) => !d.vec && !d.skip)) return false
+  embedMissing()
+  return true
 }
 
 // --- Drawing ---
@@ -210,12 +236,44 @@ function catRow(d, wins, r, byId) {
   return row
 }
 
-function head(cls, name, n, help) {
+// A heading that folds and unfolds the rows under it, by click or by Enter
+// and Space. Folded groups are remembered by name.
+function foldable(cls, name, n, key, help) {
+  const box = el('div', cls === 'cathead' ? 'catgroup' : 'sub')
   const h = el('div', cls)
   const label = el('span', cls === 'cathead' ? 'catname' : 'subname', name)
   label.title = help || name
-  h.append(label, el('span', 'badge', String(n)))
-  return h
+  h.append(el('span', 'tw'), label, el('span', 'badge', String(n)))
+  h.tabIndex = 0
+  h.setAttribute('role', 'button')
+  const body = el('div', 'catbody')
+  const show = () => {
+    const open = !C.collapsed.has(key)
+    h.setAttribute('aria-expanded', String(open))
+    body.hidden = !open
+  }
+  const toggle = () => {
+    if (C.collapsed.has(key)) C.collapsed.delete(key)
+    else C.collapsed.add(key)
+    show()
+    saveCollapsed()
+  }
+  h.addEventListener('click', toggle)
+  h.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      toggle()
+    }
+  })
+  show()
+  box.append(h, body)
+  return { box, body }
+}
+
+function saveCollapsed() {
+  const keys = [...C.collapsed].slice(-MAX_COLLAPSED)
+  C.collapsed = new Set(keys)
+  chrome.storage.local.set({ catCollapsed: keys }).catch(() => {})
 }
 
 function drawCats(r, tabs) {
@@ -237,6 +295,8 @@ function drawCats(r, tabs) {
   ])
   if (what === C.shown) return
   C.shown = what
+  C.waiting = false
+  C.draws++
   const top = CATS.scrollTop
   CATS.textContent = ''
   if (!tabs.length) {
@@ -250,29 +310,31 @@ function drawCats(r, tabs) {
   const frag = document.createDocumentFragment()
   for (const c of r.categories) {
     const sec = el('section', 'group cat')
-    sec.append(head('cathead', c.label, c.tabs.length))
+    const cat = foldable('cathead', c.label, c.tabs.length, 'c:' + c.label)
+    sec.append(cat.box)
     if (!c.subgroups.length) {
-      for (const d of c.tabs) sec.append(catRow(d, wins, r, byId))
+      for (const d of c.tabs) cat.body.append(catRow(d, wins, r, byId))
     } else {
       for (const s of c.subgroups) {
-        const sub = el('div', 'sub')
-        sub.append(head('subhead', s.label, s.tabs.length))
-        for (const d of s.tabs) sub.append(catRow(d, wins, r, byId))
-        sec.append(sub)
+        const sub = foldable('subhead', s.label, s.tabs.length, 's:' + c.label + '\n' + s.label)
+        for (const d of s.tabs) sub.body.append(catRow(d, wins, r, byId))
+        cat.body.append(sub.box)
       }
       if (c.loose.length) {
-        const sub = el('div', 'sub other')
-        sub.append(head('subhead', 'Other', c.loose.length, 'Tabs in this category that are in no subgroup'))
-        for (const d of c.loose) sub.append(catRow(d, wins, r, byId))
-        sec.append(sub)
+        const help = 'Tabs in this category that are in no subgroup'
+        const sub = foldable('subhead', 'Other', c.loose.length, 's:' + c.label + '\nOther', help)
+        sub.box.classList.add('other')
+        for (const d of c.loose) sub.body.append(catRow(d, wins, r, byId))
+        cat.body.append(sub.box)
       }
     }
     frag.append(sec)
   }
   if (r.rest.length) {
     const sec = el('section', 'group cat rest')
-    sec.append(head('cathead', 'Unlike the others', r.rest.length))
-    for (const d of r.rest) sec.append(catRow(d, wins, r, byId))
+    const rest = foldable('cathead', 'Unlike the others', r.rest.length, 'rest')
+    for (const d of r.rest) rest.body.append(catRow(d, wins, r, byId))
+    sec.append(rest.box)
     frag.append(sec)
   }
   CATS.append(frag)
@@ -293,7 +355,8 @@ function showNote() {
   const m = Model.M
   let s
   if (m.state === 'downloading') s = `Downloading the model: ${mb(m.progress)} of ${mb(Model.DOWNLOAD_BYTES)} MB.`
-  else if (m.state === 'loading') s = 'Loading the model.'
+  else if (S.indexing) s = `Reading tabs: ${S.done} of ${S.total}.`
+  else if (m.state === 'loading' || (m.started && !m.checked)) s = 'Loading the model.'
   else if (m.state === 'ready' && C.embedLeft) s = `Reading the meaning of ${C.embedLeft} more tabs.`
   else if (C.mode === 'meaning') s = 'Grouped by meaning.'
   else if (m.state === 'error') s = 'The model could not be loaded, so tabs are grouped by the words they share. See Adjustments.'
@@ -463,9 +526,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
 })
 
 C.ready = chrome.storage.local
-  .get('catParams')
+  .get(['catParams', 'catCollapsed'])
   .then((r) => {
     C.params = cleanParams(r.catParams && r.catParams.values)
+    if (Array.isArray(r.catCollapsed)) C.collapsed = new Set(r.catCollapsed.filter((k) => typeof k === 'string'))
   })
   .catch(() => {})
   .finally(() => {

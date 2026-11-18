@@ -177,6 +177,13 @@ await byMeaning()
 ok(fetched.length === 0, 'a reopened panel loads the model without fetching anything', JSON.stringify(fetched))
 cs = await cats()
 ok(together(cs, 'Marco Rossi', 'Rust Language'), 'a reopened panel uses the saved vectors', JSON.stringify(cs.map((c) => c.tabs.map(short))))
+const draws = await panel.evaluate(() => [C.draws, C.mode])
+ok(draws[0] === 1 && draws[1] === 'meaning', 'a reopened panel draws once, by meaning, with no grouping by words first', JSON.stringify(draws))
+// a subgroup folds by its triangle
+await panel.click('#cats .sub .subhead .tw')
+const sub = await panel.$eval('#cats .sub', (x) => [x.querySelector('.subhead').getAttribute('aria-expanded'), x.querySelector('.catbody').hidden])
+ok(sub[0] === 'false' && sub[1] === true, 'clicking a subgroup triangle folds it', JSON.stringify(sub))
+await panel.click('#cats .sub .subhead .tw')
 const rest = cs.find((c) => c.name === 'Unlike the others')
 ok(rest && rest.tabs.includes('about:blank'), 'blank and browser pages are not grouped', JSON.stringify(rest))
 // undo the marker: the Rust post is embedded again

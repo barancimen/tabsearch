@@ -520,6 +520,22 @@ await panel.waitForTimeout(300)
 const catFront = await panel.evaluate(() => chrome.tabs.query({ active: true, lastFocusedWindow: true }).then((t) => (t[0] || {}).title))
 ok(/^Risotto/.test(catFront || ''), 'clicking a tab in a group switches to it', catFront)
 
+// folding: the triangle or the name folds a group, Enter unfolds it
+const folded = (name) =>
+  panel.$eval(`#cats section.cat:has(.catname[title="${name}"])`, (s) => ({
+    expanded: s.querySelector('.cathead').getAttribute('aria-expanded'),
+    rowsShown: !s.querySelector('.catbody').hidden && s.querySelector('.catbody .cattab').offsetParent !== null,
+  }))
+const codeName = code.name
+await panel.click(`#cats .cathead:has(.catname[title="${codeName}"]) .tw`)
+let f = await folded(codeName)
+ok(f.expanded === 'false' && !f.rowsShown, 'clicking the triangle folds a category', JSON.stringify(f))
+await panel.click(`#cats .catname[title="${codeName}"]`)
+f = await folded(codeName)
+ok(f.expanded === 'true' && f.rowsShown, 'clicking the name unfolds it', JSON.stringify(f))
+await panel.click(`#cats .catname[title="${food.name}"]`)
+ok((await folded(food.name)).expanded === 'false', 'clicking a name folds a category')
+
 // word counts are saved with the index; a marker planted in one shows the
 // reopened panel uses them instead of counting again
 const countsSaved = await panel.evaluate(async () => {
@@ -540,6 +556,12 @@ ok(marker === 'zzsavedmarker', 'reopened panel uses the saved word counts', mark
 await panel.waitForTimeout(CATS_SETTLE)
 cs = await cats()
 ok(groupOf('Pasta').name === food.name, 'reopened panel shows the same groups', JSON.stringify(groupOf('Pasta')))
+const draws = await panel.evaluate(() => C.draws)
+ok(draws === 1, 'a reopened panel draws its groups once, after every tab is read', draws)
+ok((await folded(food.name)).expanded === 'false', 'a folded category stays folded after reopening')
+await panel.focus(`#cats .cathead:has(.catname[title="${food.name}"])`)
+await panel.keyboard.press('Enter')
+ok((await folded(food.name)).expanded === 'true', 'Enter on a heading unfolds it')
 
 // adjustments: sliders that regroup at once, each with a description on hover
 ok(!(await panel.isHidden('#catopts')), 'adjustments show in the categories view')
