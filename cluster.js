@@ -458,7 +458,39 @@ const Cluster = (() => {
     return { mode, categories, rest, duplicates }
   }
 
-  return { terms, group, vectors, settings, link, DEFAULTS, VERSION }
+  // Every doc but the target, most like the target first, by meaning when every
+  // doc has a vector and by words otherwise. Each comes with its similarity,
+  // and whether it is the same page as the target. `related` is the category
+  // threshold, below which a tab would not share the target's category.
+  function rank(docs, targetId, given) {
+    const t = docs.findIndex((d) => d.id === targetId)
+    if (t < 0) return null
+    const mode = docs.every((d) => d.vec && d.vec.length) ? 'meaning' : 'words'
+    let sim
+    if (mode === 'meaning') {
+      const a = docs[t].vec
+      sim = docs.map((d) => {
+        let x = 0
+        for (let k = 0; k < a.length; k++) x += a[k] * d.vec[k]
+        return x
+      })
+    } else {
+      const vecs = vectors(docs)
+      sim = vecs.map((v) => {
+        let x = 0
+        for (const [term, w] of vecs[t]) x += w * (v.get(term) || 0)
+        return x
+      })
+    }
+    const page = pageOf(docs[t].url)
+    const ranked = docs
+      .map((doc, i) => ({ doc, sim: sim[i], same: (page && pageOf(doc.url) === page) || sim[i] >= SAME_PAGE[mode] }))
+      .filter((_, i) => i !== t)
+      .sort((a, b) => b.sim - a.sim || a.doc.windowId - b.doc.windowId || a.doc.index - b.doc.index)
+    return { mode, target: docs[t], ranked, related: settings(mode, given && given[mode]).category }
+  }
+
+  return { terms, group, rank, vectors, settings, link, DEFAULTS, VERSION }
 })()
 
 if (typeof module === 'object' && module.exports) module.exports = Cluster

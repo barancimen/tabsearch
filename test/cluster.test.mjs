@@ -210,6 +210,26 @@ ok(Cluster.group(strangers, { words: { window: 0.3 } }).categories.length === 0,
   ok(named(r) === named(Cluster.group(docs((n, i) => i, false))), 'a page open twice does not change names', named(r))
 }
 
+// Live: every other tab, most like one tab first
+for (const meaning of [false, true]) {
+  const d = docs((n, i) => i, meaning)
+  const rust = d.find((x) => x.name === 'X: Rust release')
+  const r = Cluster.rank(d, rust.id)
+  const how = meaning ? 'meaning' : 'words'
+  ok(r.mode === how && r.ranked.length === d.length - 1, how + ': every other tab is ranked')
+  const top = r.ranked.slice(0, 4).map((x) => x.doc.name)
+  ok(top.every((n) => TOPIC[n] === 'code'), how + ': the tabs most like the Rust post are about code', top.join(', '))
+  ok(r.ranked.every((x, i) => !i || r.ranked[i - 1].sim >= x.sim), how + ': most alike first')
+  ok(r.related === Cluster.DEFAULTS[how].category, how + ': the related line is the category threshold')
+}
+{
+  const d = docs((n, i) => i, false)
+  d.push({ ...d[0], id: 99, url: d[0].url + '#History' })
+  const r = Cluster.rank(d, 0)
+  ok(r.ranked[0].doc.id === 99 && r.ranked[0].same, 'the same page ranks first and is marked as the same page')
+  ok(Cluster.rank(d, 12345) === null, 'a tab that is not there has no ranking')
+}
+
 ok(Cluster.group([]).categories.length === 0, 'no tabs')
 const lone = Cluster.group([{ id: 1, windowId: 1, index: 0, title: 'New Tab', text: '', url: '', terms: Cluster.terms('New Tab', '') }])
 ok(lone.categories.length === 0 && lone.rest.length === 1, 'a single tab is left on its own')

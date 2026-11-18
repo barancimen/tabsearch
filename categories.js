@@ -10,7 +10,9 @@ const EMBED_VERSION = 1 // bump when embedInput() changes, so vectors are made a
 const EMBED_BATCH = 2 // tabs sent to the model at a time; the groups are redrawn between batches
 
 const C = {
-  by: 'subject', // how the view groups tabs: by subject or by window
+  by: 'subject', // what the list shows: subject, window or live
+  liveId: null, // the tab Live compares the others with
+  liveShown: null, // the tab Live was last drawn for
   timer: 0,
   shown: '', // what the view on screen was drawn from
   shownBy: '', // and whether it was grouped by subject or by window
@@ -143,6 +145,8 @@ async function embedMissing() {
     for (;;) {
       if (Model.M.state !== 'ready') break
       const tabs = (await chrome.tabs.query({})).filter((t) => t.id != null && !skipTab(t) && !vecFor(t))
+      // in Live, the tab being looked at comes first
+      if (S.view === 'live') tabs.sort((a, b) => (b.id === C.liveId) - (a.id === C.liveId))
       C.embedLeft = tabs.length
       showNote()
       if (!tabs.length) break
@@ -191,6 +195,10 @@ async function paintCats() {
     await drawWindows(tabs)
     return
   }
+  if (C.by === 'live') {
+    await drawLive(tabs)
+    return
+  }
   Model.start()
   const live = new Set(tabs.map((t) => t.id))
   for (const id of C.vecs.keys()) if (!live.has(id)) C.vecs.delete(id)
@@ -199,13 +207,7 @@ async function paintCats() {
   // The model takes a few seconds to load. Rather than group by words and
   // then switch to meaning, the view waits for it, keeping what it showed.
   if (!m.checked || m.state === 'loading') {
-    showNote()
-    if ((!C.shown || C.shownBy !== 'subject') && !C.waiting) {
-      C.waiting = true
-      C.shown = ''
-      CATS.textContent = ''
-      CATS.append(el('div', 'empty', 'The groups will show here once the model has loaded.'))
-    }
+    waitForModel('subject', 'The groups will show here once the model has loaded.')
     return
   }
   // Groups are drawn as the work goes on: from the tabs read so far, and once
@@ -224,6 +226,17 @@ async function paintCats() {
   if (pending.length) r.mode = 'meaning'
   r.pending = pending
   drawCats(r, tabs)
+}
+
+// While the model loads, keeps what the view showed, or says why it is empty.
+function waitForModel(kind, message) {
+  showNote()
+  if ((!C.shown || C.shownBy !== kind) && !C.waiting) {
+    C.waiting = true
+    C.shown = ''
+    CATS.textContent = ''
+    CATS.append(el('div', 'empty', message))
+  }
 }
 
 // --- Drawing ---
@@ -465,25 +478,176 @@ async function drawWindows(tabs) {
 function showCatControls() {
   const subjects = S.view === 'subjects'
   $('#catopts').hidden = !subjects
-  $('#catnote').hidden = !subjects
+  $('#catnote').hidden = !subjects && S.view !== 'live'
 }
+
+// --- Live ---
+
+// The window the panel belongs to.
+let panelWindowId = null
+async function panelWindow() {
+  if (panelWindowId == null) {
+    try {
+      panelWindowId = (await chrome.windows.getCurrent()).id
+    } catch (e) {}
+  }
+  return panelWindowId
+}
+
+// The extension's own pages, such as the panel when it is open as a tab.
+const ownPage = (t) => (t.url || '').startsWith(chrome.runtime.getURL(''))
+
+// The tab Live compares the others with: the one being looked at in the
+// panel's window.
+async function liveTarget(tabs) {
+  if (C.liveId != null && tabs.some((t) => t.id === C.liveId)) return C.liveId
+  const here = await panelWindow()
+  const active = tabs.find((t) => t.windowId === here && t.active && !ownPage(t))
+  C.liveId = active ? active.id : null
+  return C.liveId
+}
+
+// Every other tab, most like the tab being looked at first, with how alike
+// each is. Tabs the model has not read yet, and browser pages with no text,
+// are listed apart.
+async function drawLive(tabs) {
+  Model.start()
+  const m = Model.M
+  if (!m.checked || m.state === 'loading') {
+    waitForModel('live', 'The list will show here once the model has loaded.')
+    return
+  }
+  const id = await liveTarget(tabs)
+  const docs = tabs.map(docFor)
+  const target = docs.find((d) => d.id === id)
+  let message = ''
+  if (!target) message = 'Switch to a web page to see the tabs most like it.'
+  else if (target.skip) message = 'This tab has no text to compare. Switch to a web page to see the tabs most like it.'
+  let pool = docs.filter((d) => !d.skip)
+  let pending = []
+  if (!message && m.state === 'ready' && C.embedBroken !== m.key) {
+    pending = pool.filter((d) => !d.vec)
+    if (pending.length) {
+      embedMissing()
+      pool = pool.filter((d) => d.vec)
+    }
+    if (!target.vec) message = 'Reading this tab. The list shows once the model has read it.'
+  }
+  const r = message ? null : Cluster.rank(pool, id, C.params)
+  if (r) C.mode = pending.length ? 'meaning' : r.mode
+  showNote()
+  const items = r ? r.ranked.filter((x) => onDomain(x.doc.tab)) : []
+  const waiting = pending.filter((d) => d.id !== id && onDomain(d.tab))
+  const skipped = docs.filter((d) => d.skip && d.id !== id && onDomain(d.tab))
+  const wins = new Map()
+  for (const w of [...new Set(tabs.map((t) => t.windowId))].sort((a, b) => a - b)) wins.set(w, wins.size + 1)
+  const ids = (list) => list.map((d) => [d.id, d.title, d.tab.favIconUrl])
+  const what = JSON.stringify([
+    'live',
+    id,
+    message,
+    S.domain,
+    target ? [target.title, target.tab.favIconUrl] : null,
+    items.map((x) => [x.doc.id, x.doc.title, x.doc.tab.favIconUrl, Math.round(x.sim * 100), x.same]),
+    ids(waiting),
+    ids(skipped),
+    [...wins],
+  ])
+  if (what === C.shown) return
+  C.shown = what
+  C.shownBy = 'live'
+  C.waiting = false
+  // a new tab to compare with starts the list at the top
+  const top = id === C.liveShown ? CATS.scrollTop : 0
+  C.liveShown = id
+  CATS.textContent = ''
+  const byId = new Map(tabs.map((t) => [t.id, t]))
+  const none = { duplicates: new Map() }
+  if (target) {
+    const head = el('section', 'livehead')
+    head.append(el('div', 'livelabel', 'Most like this tab'), catRow(target, wins, none, byId))
+    CATS.append(head)
+  }
+  if (message) {
+    CATS.append(el('div', 'empty', message))
+  } else {
+    const same = { duplicates: new Map(items.filter((x) => x.same).map((x) => [x.doc.id, [id]])) }
+    const list = el('section', 'group live')
+    let below = false
+    for (const x of items) {
+      if (!below && x.sim < r.related) {
+        below = true
+        if (list.childElementCount) {
+          const split = el('div', 'livesplit', 'Less alike')
+          split.title = 'Tabs below this line are not alike enough to share a category with this tab'
+          list.append(split)
+        }
+      }
+      const row = catRow(x.doc, wins, same, byId)
+      const score = el('span', 'score', x.sim.toFixed(2))
+      score.title = 'How alike this tab is to the one you are looking at, from 0 to 1'
+      row.insertBefore(score, row.querySelector('.win'))
+      list.append(row)
+    }
+    if (!items.length && !waiting.length) {
+      list.append(el('div', 'empty', S.domain ? 'No other open tab is on ' + S.domain + '.' : 'There are no other tabs to compare.'))
+    }
+    CATS.append(list)
+  }
+  for (const [list, name, key, help] of [
+    [waiting, 'Still being read', 'live-pending', 'Tabs the model has not read yet. They join the list as it reads them.'],
+    [skipped, 'Not compared', 'live-skip', 'Browser pages and blank tabs, which have no text to compare'],
+  ]) {
+    if (!list.length) continue
+    const sec = el('section', 'group cat rest')
+    const f = foldable('cathead', name, list.length, key, help)
+    for (const d of list) f.body.append(catRow(d, wins, none, byId))
+    sec.append(f.box)
+    CATS.append(sec)
+  }
+  CATS.scrollTop = top
+}
+
+// Live follows the tab being looked at in the panel's window.
+chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
+  if (windowId !== (await panelWindow())) return
+  let t
+  try {
+    t = await chrome.tabs.get(tabId)
+  } catch (e) {
+    return
+  }
+  if (ownPage(t)) return
+  C.liveId = tabId
+  if (S.view === 'live') paintCats()
+})
+chrome.tabs.onReplaced.addListener((added, removed) => {
+  if (C.liveId === removed) C.liveId = added
+})
+chrome.tabs.onRemoved.addListener((id) => {
+  if (C.liveId === id) C.liveId = null
+})
 
 // --- The model ---
 
 const mb = (n) => (n / 1e6).toFixed(1)
 
-// The line above the groups that says how they were made.
+// The line above the list that says how it was made.
 function showNote() {
   const m = Model.M
+  const live = S.view === 'live'
+  const done = live ? 'Sorted' : 'Grouped'
+  const how = live ? 'sorted' : 'grouped'
+  const where = live ? 'under Adjustments in Subjects' : 'under Adjustments'
   let s
   if (m.state === 'downloading') s = `Downloading the model: ${mb(m.progress)} of ${mb(Model.DOWNLOAD_BYTES)} MB.`
   else if (S.indexing) s = `Reading tabs: ${S.done} of ${S.total}.`
   else if (m.state === 'loading' || (m.started && !m.checked)) s = 'Loading the model.'
-  else if (m.state === 'ready' && C.embedLeft) s = `Grouped by meaning so far. Reading the meaning of ${C.embedLeft} more tabs.`
-  else if (C.mode === 'meaning') s = 'Grouped by meaning.'
-  else if (m.state === 'error') s = 'The model could not be loaded, so tabs are grouped by the words they share. See Adjustments.'
-  else if (m.state === 'ready') s = 'The model could not read every tab, so tabs are grouped by the words they share.'
-  else s = 'Grouped by the words tabs share. To group them by meaning, set up the model under Adjustments.'
+  else if (m.state === 'ready' && C.embedLeft) s = `${done} by meaning so far. Reading the meaning of ${C.embedLeft} more tabs.`
+  else if (C.mode === 'meaning') s = `${done} by meaning.`
+  else if (m.state === 'error') s = `The model could not be loaded, so tabs are ${how} by the words they share. See Adjustments in Subjects.`
+  else if (m.state === 'ready') s = `The model could not read every tab, so tabs are ${how} by the words they share.`
+  else s = `${done} by the words tabs share. To use their meaning, set up the model ${where}.`
   CATNOTE.textContent = s
 }
 

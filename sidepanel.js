@@ -9,6 +9,7 @@ const COUNT = $('#count')
 const STATUS = $('#status')
 const BAD = $('#bad')
 const SEARCHBAR = $('#searchbar')
+const VIEWS = ['search', 'live', 'windows', 'subjects']
 
 const PER_TAB = 5 // snippets shown per tab
 const MAX_GROUPS = 400 // tabs listed
@@ -36,7 +37,7 @@ const S = {
   sel: -1,
   pending: null, // saved selection and scroll, applied by the first paint with results
   painted: '', // what the results on screen are for
-  view: 'search', // or 'windows' or 'subjects'
+  view: 'search', // or 'live', 'windows' or 'subjects'
 }
 
 // Tells this panel's saves apart from those of the panels in other windows.
@@ -110,19 +111,20 @@ function applyUi(ui) {
   S.badOpen = !!ui.badOpen
   // "cats" is the one view that versions before Windows and Subjects had
   if (ui.view === 'cats') S.view = ui.catBy === 'window' ? 'windows' : 'subjects'
-  else S.view = ['windows', 'subjects'].includes(ui.view) ? ui.view : 'search'
+  else S.view = ['live', 'windows', 'subjects'].includes(ui.view) ? ui.view : 'search'
   $('#catopts').open = !!ui.catOpts
 }
 
-// Shows the Search, Windows or Subjects view, whichever S.view says.
+// Shows the Search, Live, Windows or Subjects view, whichever S.view says.
 function showView(draw = true) {
   const cats = S.view !== 'search'
-  for (const v of ['search', 'windows', 'subjects']) $('#v-' + v).setAttribute('aria-selected', String(v === S.view))
-  C.by = S.view === 'windows' ? 'window' : 'subject'
+  for (const v of VIEWS) $('#v-' + v).setAttribute('aria-selected', String(v === S.view))
+  C.by = { windows: 'window', live: 'live' }[S.view] || 'subject'
   SEARCHBAR.hidden = cats
   RESULTS.hidden = cats
   CATS.hidden = !cats
   CATS.classList.toggle('subjects', S.view === 'subjects')
+  CATS.classList.toggle('live', S.view === 'live')
   showCatControls()
   if (cats && draw) paintCats()
   focusView()
@@ -881,10 +883,10 @@ $('#refresh').addEventListener('click', () => {
   indexAll(true)
 })
 
-for (const view of ['search', 'windows', 'subjects']) {
+for (const view of VIEWS) {
   $('#v-' + view).addEventListener('click', () => {
     if (S.view === view) return
-    // Windows and Subjects share the list, which starts at the top for each
+    // Live, Windows and Subjects share the list, which starts at the top for each
     if (S.view !== 'search' && view !== 'search') CATS.scrollTop = 0
     S.view = view
     saveUi()

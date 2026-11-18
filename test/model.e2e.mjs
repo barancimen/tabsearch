@@ -187,6 +187,25 @@ const sims = await panel.evaluate(
 // quantized arithmetic differs a little between WebAssembly and native code
 ok(sims.every((x) => x > 0.995), 'vectors match the reference vectors', JSON.stringify(sims.map((x) => x.toFixed(4))))
 
+// --- Live, by meaning ---------------------------------------------------------
+// the pasta post is in the panel's window; looking at it puts the lasagna video first
+await panel.evaluate(async () => {
+  const t = (await chrome.tabs.query({ currentWindow: true })).find((x) => /^Marco Rossi/.test(x.title))
+  await chrome.tabs.update(t.id, { active: true })
+})
+await panel.bringToFront()
+await panel.click('#v-live')
+await panel.waitForFunction(() => document.querySelector('#cats .live .cattab'), null, { timeout: 30000, polling: 250 })
+const live = await panel.evaluate(() => ({
+  note: document.querySelector('#catnote').textContent,
+  target: document.querySelector('#cats .livehead .title').textContent,
+  first: document.querySelector('#cats .live .cattab .title').textContent,
+}))
+p('live by meaning', live)
+ok(live.note === 'Sorted by meaning.' && /^Marco Rossi/.test(live.target) && /Lasagna/.test(live.first), 'Live sorts by meaning: the lasagna video is most like the pasta post', JSON.stringify(live))
+await panel.click('#v-subjects')
+await byMeaning()
+
 // --- reopening reuses the saved vectors -------------------------------------
 // a marker: the Rust post's saved vector replaced by the pasta post's
 await panel.evaluate(async () => {

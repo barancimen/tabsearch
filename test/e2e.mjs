@@ -743,6 +743,59 @@ cs = await cats()
 ok(groupOf('Pasta').name === food.name, 'set all to default brings the groups back', groupOf('Pasta').name)
 await panel.click('#catopts summary')
 
+// --- Live: every tab, most like the one being looked at first ---------------
+const liveRows = () =>
+  panel.evaluate(() => ({
+    target: (document.querySelector('#cats .livehead .title') || {}).textContent,
+    ranked: [...document.querySelectorAll('#cats .live .cattab')].map((r) => [
+      r.querySelector('.title').textContent.replace(' - Wikipedia', ''),
+      Number((r.querySelector('.score') || {}).textContent),
+      !!r.querySelector('.dup'),
+    ]),
+  }))
+const openHere = (url) =>
+  panel.evaluate(async (u) => (await chrome.tabs.create({ windowId: (await chrome.windows.getCurrent()).id, url: u, active: true })).id, url)
+const lasagnaTab = await openHere(art('Lasagna'))
+await panel.waitForFunction((id) => S.cache.has(id), lasagnaTab, { timeout: 15000, polling: 200 })
+await panel.bringToFront()
+await panel.click('#v-live')
+await panel.waitForFunction(() => document.querySelector('#cats .live .cattab'), null, { timeout: 10000, polling: 200 })
+let lv = await liveRows()
+p('live, lasagna', lv.ranked.slice(0, 4))
+ok(/^Lasagna/.test(lv.target || ''), 'Live compares with the tab being looked at', lv.target)
+// the test windows already have a Lasagna tab: that copy comes first, marked
+ok(lv.ranked[0][0] === 'Lasagna' && lv.ranked[0][2], 'the same page open in another tab comes first, marked as a duplicate', JSON.stringify(lv.ranked[0]))
+const others = (l) => l.ranked.filter((x) => !x[2]).slice(0, 2).map((x) => x[0])
+ok(['Pasta', 'Risotto'].every((t) => others(lv).includes(t)), 'the tabs most like it come next', JSON.stringify(lv.ranked.slice(0, 4)))
+ok(lv.ranked.every((x, i) => !i || lv.ranked[i - 1][1] >= x[1]), 'each tab shows its score, highest first')
+ok(!(await panel.isHidden('#catnote')) && /Sorted by the words/.test(await text('#catnote')), 'Live says how it sorted', await text('#catnote'))
+if (process.env.SHOTS) {
+  await panel.setViewportSize({ width: 320, height: 560 })
+  await panel.screenshot({ path: path.join(process.env.SHOTS, 'live.png') })
+  await panel.emulateMedia({ colorScheme: 'dark' })
+  await panel.screenshot({ path: path.join(process.env.SHOTS, 'live-dark.png') })
+  await panel.emulateMedia({ colorScheme: 'light' })
+  await panel.setViewportSize({ width: 1280, height: 720 })
+}
+const liveColor = await panel.$eval('#v-live', (b) => getComputedStyle(b).backgroundColor)
+ok(liveColor === 'rgb(34, 197, 94)', 'the Live tab is bright green when chosen', liveColor)
+const pythonTab = await openHere(art('Python (programming language)'))
+await panel.waitForFunction((id) => S.cache.has(id), pythonTab, { timeout: 15000, polling: 200 })
+await panel.bringToFront()
+await panel.waitForFunction(() => /^Python/.test((document.querySelector('#cats .livehead .title') || {}).textContent || ''), null, { timeout: 10000, polling: 200 })
+lv = await liveRows()
+ok(['JavaScript', 'Rust (programming language)'].every((t) => others(lv).includes(t)), 'switching tabs sorts the list for the new tab', JSON.stringify(lv.ranked.slice(0, 4)))
+await panel.evaluate((ids) => chrome.tabs.remove(ids), [lasagnaTab, pythonTab])
+await panel.bringToFront()
+
+// flat tabs that run to the top edge
+const tabBox = await panel.$eval('#v-search', (b) => [b.getBoundingClientRect().top, getComputedStyle(b).borderTopLeftRadius])
+ok(tabBox[0] === 0 && tabBox[1] === '0px', 'the tabs reach the top edge and have square corners', JSON.stringify(tabBox))
+await panel.setViewportSize({ width: 320, height: 400 })
+const fits = await panel.evaluate(() => [document.querySelector('#refresh').getBoundingClientRect().right, innerWidth])
+ok(fits[0] <= fits[1], 'four tabs and the reindex button fit a 320 px panel', JSON.stringify(fits))
+await panel.setViewportSize({ width: 1280, height: 720 })
+
 await panel.click('#v-search')
 ok(await panel.isHidden('#catopts'), 'adjustments are hidden in the search view')
 await panel.evaluate((ids) => Promise.all(ids.map((w) => chrome.windows.remove(w))), winIds)

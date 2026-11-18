@@ -14,10 +14,10 @@ subject.
 
 ## Use
 
-The panel has three tabs along the top: Search, Windows and Subjects. Under
-them is the domain filter, which all three share, and in Search the search box
-below it. Opening the panel puts the cursor in the search box, or the focus on
-the list in Windows and Subjects, so you can type or press Page Down at once.
+The panel has four tabs along the top: Search, Live, Windows and Subjects.
+Under them is the domain filter, which all four share, and in Search the search
+box below it. Opening the panel puts the cursor in the search box, or the focus
+on the list in the other tabs, so you can type or press Page Down at once.
 Page Down and Page Up scroll the list even while the cursor is in a box.
 
 Type in the search box. Results are grouped by tab, busiest tab first, with
@@ -66,7 +66,17 @@ searchable" list, the selected result and the scroll position. Panels open in
 several windows at once follow each other's query, filter, toggles and list. The
 state is kept in `chrome.storage.local`, so it also survives a browser restart.
 
-## Windows and Subjects
+## Live, Windows and Subjects
+
+The Live tab, bright green while chosen, lists every other tab by how alike it
+is to the tab you are looking at in the panel's window, most alike first, with
+a score from 0 to 1. It follows you as you switch tabs. Tabs are compared by
+meaning once the model is set up (see below) and by the words they share until
+then. A "Less alike" line marks where tabs stop being alike enough to share a
+category with it, using the Subjects category setting. The same page open in
+another tab comes first, marked "Duplicate". Tabs the model has not read yet are
+listed under "Still being read", the tab you are looking at is read first, and
+browser pages with no text are listed under "Not compared".
 
 The Windows tab lists every open tab window by window. Each window is a
 foldable section named W1, W2, ... in the order Chrome numbers them, with its
