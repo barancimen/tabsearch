@@ -79,6 +79,13 @@ in "(3) Home / X", is ignored, so a notification doesn't count as a change.
 A line above the groups says how they were made: by meaning, with the model
 below, or by the words the tabs share, when the model is not set up.
 
+"Group by" switches between subjects and windows. By window, each window is a
+foldable section named W1, W2, ... in the order Chrome numbers them, with its
+tabs in tab strip order, and the panel's own window marked "(this window)".
+This needs no grouping, so it shows at once, and the model is not loaded for
+it. Duplicates are tabs with the same address. The choice is remembered with
+the rest of the panel's state.
+
 ### The meaning model
 
 Tabs are compared by meaning with MongoDB's

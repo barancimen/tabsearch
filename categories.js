@@ -10,8 +10,10 @@ const EMBED_VERSION = 1 // bump when embedInput() changes, so vectors are made a
 const EMBED_BATCH = 4 // tabs sent to the model at a time
 
 const C = {
+  by: 'subject', // how the view groups tabs: by subject or by window
   timer: 0,
   shown: '', // what the view on screen was drawn from
+  shownBy: '', // and whether it was grouped by subject or by window
   mode: '', // how the groups on screen were measured: meaning or words
   pendingScroll: null, // saved scroll position, applied by the first drawing
   params: { meaning: {}, words: {} }, // the settings moved away from their defaults
@@ -178,11 +180,15 @@ function scheduleCats() {
 
 async function paintCats() {
   await C.ready
-  Model.start()
   let tabs = []
   try {
     tabs = (await chrome.tabs.query({})).filter((t) => t.id != null)
   } catch (e) {}
+  if (C.by === 'window') {
+    await drawWindows(tabs)
+    return
+  }
+  Model.start()
   const live = new Set(tabs.map((t) => t.id))
   for (const id of C.vecs.keys()) if (!live.has(id)) C.vecs.delete(id)
   const docs = tabs.map(docFor)
@@ -192,8 +198,9 @@ async function paintCats() {
   // there are none yet.
   if (busy(docs)) {
     showNote()
-    if (!C.shown && !C.waiting) {
+    if ((!C.shown || C.shownBy !== 'subject') && !C.waiting) {
       C.waiting = true
+      C.shown = ''
       CATS.textContent = ''
       CATS.append(el('div', 'empty', 'The groups will show here once every tab has been read.'))
     }
@@ -227,7 +234,7 @@ function catRow(d, wins, r, byId) {
     tag.title = 'The same page is open in another tab: ' + dups.map((id) => byId.get(id).title || byId.get(id).url).join(', ')
     row.append(tag)
   }
-  if (wins.size > 1) {
+  if (wins.size > 1 && C.by !== 'window') {
     const w = el('span', 'win', 'W' + wins.get(t.windowId))
     w.title = 'Window ' + wins.get(t.windowId)
     row.append(w)
@@ -295,6 +302,7 @@ function drawCats(r, tabs) {
   ])
   if (what === C.shown) return
   C.shown = what
+  C.shownBy = 'subject'
   C.waiting = false
   C.draws++
   const top = CATS.scrollTop
@@ -345,6 +353,88 @@ function drawCats(r, tabs) {
     CATS.scrollTop = top
   }
 }
+
+// Every tab, window by window, in the order of each window's tab strip. Needs
+// no grouping, so it is drawn at once. Duplicates are tabs with the same address.
+async function drawWindows(tabs) {
+  let here = null
+  try {
+    here = (await chrome.windows.getCurrent()).id
+  } catch (e) {}
+  const ids = [...new Set(tabs.map((t) => t.windowId))].sort((a, b) => a - b)
+  const wins = new Map(ids.map((id, i) => [id, i + 1]))
+  const byPage = new Map()
+  for (const t of tabs) {
+    const page = (t.url || '').replace(/#.*$/, '')
+    if (!page) continue
+    if (!byPage.has(page)) byPage.set(page, [])
+    byPage.get(page).push(t.id)
+  }
+  const duplicates = new Map()
+  for (const same of byPage.values()) {
+    if (same.length > 1) for (const id of same) duplicates.set(id, same.filter((x) => x !== id))
+  }
+  const what = JSON.stringify([
+    'window',
+    here,
+    tabs.map((t) => [t.id, t.windowId, t.index, t.title, t.favIconUrl]),
+    [...duplicates.keys()],
+  ])
+  if (what === C.shown) return
+  C.shown = what
+  C.shownBy = 'window'
+  C.waiting = false
+  const top = CATS.scrollTop
+  CATS.textContent = ''
+  if (!tabs.length) {
+    CATS.append(el('div', 'empty', 'No open tabs.'))
+    return
+  }
+  const r = { duplicates }
+  const byId = new Map(tabs.map((t) => [t.id, t]))
+  const frag = document.createDocumentFragment()
+  for (const id of ids) {
+    const mine = tabs.filter((t) => t.windowId === id).sort((a, b) => a.index - b.index)
+    const sec = el('section', 'group cat win-group')
+    const name = 'W' + wins.get(id) + (id === here ? ' (this window)' : '')
+    const w = foldable('cathead', name, mine.length, 'w:' + id, 'Window ' + wins.get(id))
+    for (const t of mine) w.body.append(catRow({ id: t.id, tab: t }, wins, r, byId))
+    sec.append(w.box)
+    frag.append(sec)
+  }
+  CATS.append(frag)
+  if (C.pendingScroll != null) {
+    CATS.scrollTop = C.pendingScroll
+    C.pendingScroll = null
+  } else {
+    CATS.scrollTop = top
+  }
+}
+
+// Shows the Subject or Window choice, and the controls that go with it.
+function showBy() {
+  const cats = S.view === 'cats'
+  const subject = C.by === 'subject'
+  for (const [id, on] of [['#by-subject', subject], ['#by-window', !subject]]) {
+    $(id).classList.toggle('on', on)
+    $(id).setAttribute('aria-checked', String(on))
+  }
+  // the model and the sliders only matter when grouping by subject
+  $('#catopts').hidden = !cats || !subject
+  $('#catnote').hidden = !cats || !subject
+}
+
+function setBy(by) {
+  if (C.by === by) return
+  C.by = by
+  showBy()
+  CATS.scrollTop = 0
+  saveUi()
+  paintCats()
+}
+
+$('#by-subject').addEventListener('click', () => setBy('subject'))
+$('#by-window').addEventListener('click', () => setBy('window'))
 
 // --- The model ---
 

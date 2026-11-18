@@ -498,3 +498,16 @@ mark {
 .catbody[hidden] {
   display: none;
 }
+
+#catby {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+#catby .bylabel {
+  color: var(--dim);
+}
+
+#catby button {
+  padding: 2px 9px;
+}

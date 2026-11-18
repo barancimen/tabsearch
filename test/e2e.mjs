@@ -520,6 +520,39 @@ await panel.waitForTimeout(300)
 const catFront = await panel.evaluate(() => chrome.tabs.query({ active: true, lastFocusedWindow: true }).then((t) => (t[0] || {}).title))
 ok(/^Risotto/.test(catFront || ''), 'clicking a tab in a group switches to it', catFront)
 
+// grouped by window: one section per window, tabs in tab strip order
+ok((await panel.getAttribute('#by-subject', 'aria-checked')) === 'true', 'categories start grouped by subject')
+await panel.click('#by-window')
+await panel.waitForSelector('#cats .win-group', { timeout: 5000 })
+const byWin = await panel.$$eval('#cats section.cat', (secs) =>
+  secs.map((s) => ({
+    name: s.querySelector('.catname').textContent,
+    tabs: [...s.querySelectorAll('.cattab .title')].map((t) => t.textContent.replace(' - Wikipedia', '')),
+    tags: s.querySelectorAll('.cattab .win').length,
+  }))
+)
+p('by window', byWin.map((w) => [w.name, w.tabs.length]))
+// SHOTS=<folder> saves a picture of the panel at side panel width
+if (process.env.SHOTS) {
+  await panel.setViewportSize({ width: 360, height: 640 })
+  await panel.screenshot({ path: path.join(process.env.SHOTS, 'windows.png') })
+  await panel.setViewportSize({ width: 1280, height: 720 })
+}
+ok(byWin.length === 3 && byWin.map((w) => w.name.slice(0, 2)).join() === 'W1,W2,W3', 'one section per window, named W1, W2, W3', JSON.stringify(byWin.map((w) => w.name)))
+ok(JSON.stringify(byWin[1].tabs) === JSON.stringify(W1) && JSON.stringify(byWin[2].tabs) === JSON.stringify(W2), "each window lists its tabs in tab strip order", JSON.stringify(byWin.slice(1).map((w) => w.tabs)))
+ok(/this window/.test(byWin[0].name), "the panel's own window is marked", byWin[0].name)
+ok(byWin.every((w) => w.tags === 0), 'tabs carry no window tags when grouped by window')
+ok((await panel.isHidden('#catopts')) && (await panel.isHidden('#catnote')), 'adjustments and the note are hidden when grouping by window')
+await panel.click('#cats .cathead:has(.catname[title="Window 2"]) .tw')
+ok((await panel.getAttribute('#cats .cathead:has(.catname[title="Window 2"])', 'aria-expanded')) === 'false', 'a window folds')
+await panel.click('#cats .cathead:has(.catname[title="Window 2"]) .tw')
+await panel.waitForTimeout(300)
+const savedBy = await panel.evaluate(() => chrome.storage.local.get('ui').then((r) => r.ui.catBy))
+ok(savedBy === 'window', 'the choice is saved', savedBy)
+await panel.click('#by-subject')
+await panel.waitForSelector('#cats section.cat:not(.win-group)', { timeout: 10000 })
+ok(!(await panel.isHidden('#catopts')) && (await cats()).some((c) => c.name === food.name), 'switching back shows the categories again')
+
 // folding: the triangle or the name folds a group, Enter unfolds it
 const folded = (name) =>
   panel.$eval(`#cats section.cat:has(.catname[title="${name}"])`, (s) => ({
