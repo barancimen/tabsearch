@@ -18,7 +18,6 @@ The panel has four tabs along the top: Search, Windows, Subjects and Active.
 Under them is the domain filter, which all four share, and in Search the search
 box below it. Opening the panel puts the cursor in the search box, or the focus
 on the list in the other tabs, so you can type or press Page Down at once.
-The chosen tab is underlined in black, or in white for Active.
 Page Down and Page Up scroll the list even while the cursor is in a box.
 
 Type in the search box. Results are grouped by tab, busiest tab first, with

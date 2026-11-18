@@ -779,11 +779,7 @@ if (process.env.SHOTS) {
 }
 const liveColor = await panel.$eval('#v-live', (b) => [getComputedStyle(b).backgroundColor, getComputedStyle(b).color, getComputedStyle(b).boxShadow])
 ok(liveColor[0] === 'rgb(34, 197, 94)' && liveColor[1] === 'rgb(255, 255, 255)', 'the Live tab is bright green with white text when chosen', JSON.stringify(liveColor))
-ok(/rgb\(255, 255, 255\)/.test(liveColor[2]), 'the line under Live is white', liveColor[2])
-await panel.click('#v-windows')
-const underline = await panel.$eval('#v-windows', (b) => getComputedStyle(b).boxShadow)
-ok(/rgb\(0, 0, 0\)/.test(underline), 'the line under another chosen tab is black', underline)
-await panel.click('#v-live')
+ok(liveColor[2] === 'none', 'there is no line under the chosen tab', liveColor[2])
 const lastTab = await panel.$eval('.tabs', (n) => [...n.querySelectorAll('button.view')].pop().id)
 ok(lastTab === 'v-live', 'Active is the last tab', lastTab)
 ok((await panel.textContent('#v-live')) === 'Active', 'the tab is called Active')
