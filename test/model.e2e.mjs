@@ -70,6 +70,30 @@ let sw = ctx.serviceWorkers()[0]
 if (!sw) sw = await ctx.waitForEvent('serviceworker', { timeout: 20000 })
 const id = new URL(sw.url()).host
 
+// Reloads the extension, which closes its pages, and opens the panel again once
+// the reloaded extension answers. Returns the new panel page.
+async function reloadExtension(old) {
+  // Chromium disables an unpacked extension that reloads without Developer
+  // mode, which anyone loading this one unpacked has on
+  const ext = await ctx.newPage()
+  await ext.goto('chrome://extensions/')
+  await ext.evaluate(() => new Promise((r) => chrome.developerPrivate.updateProfileConfiguration({ inDeveloperMode: true }, r)))
+  await ext.close()
+  const startedAt = await old.evaluate(() => performance.timeOrigin)
+  await old.evaluate(() => setTimeout(() => chrome.runtime.reload(), 50))
+  await old.waitForEvent('close', { timeout: 20000 }).catch(() => {})
+  for (let i = 0; i < 40; i++) {
+    const pg = await ctx.newPage()
+    try {
+      await pg.goto(`chrome-extension://${id}/sidepanel.html`, { timeout: 5000 })
+      if ((await pg.evaluate(() => performance.timeOrigin)) > startedAt) return pg
+    } catch (e) {}
+    await pg.close().catch(() => {})
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  throw new Error('the extension did not come back after reloading')
+}
+
 // Hugging Face, answered from the model folder; every request is recorded
 const fetched = []
 let offline = false
@@ -171,12 +195,15 @@ await panel.evaluate(async () => {
 })
 offline = true
 fetched.length = 0
-await panel.reload()
-await panel.waitForSelector('#cats section.cat', { timeout: 30000 })
+// reload the whole extension: its pages close, and the saved index and the
+// downloaded model must survive
+panel = await reloadExtension(panel)
+watch(panel)
+await panel.waitForSelector('#cats section.cat', { timeout: 60000 })
 await byMeaning()
-ok(fetched.length === 0, 'a reopened panel loads the model without fetching anything', JSON.stringify(fetched))
+ok(fetched.length === 0, 'after reloading the extension, the model loads without fetching anything', JSON.stringify(fetched))
 cs = await cats()
-ok(together(cs, 'Marco Rossi', 'Rust Language'), 'a reopened panel uses the saved vectors', JSON.stringify(cs.map((c) => c.tabs.map(short))))
+ok(together(cs, 'Marco Rossi', 'Rust Language'), 'after reloading the extension, the saved vectors are used', JSON.stringify(cs.map((c) => c.tabs.map(short))))
 const draws = await panel.evaluate(() => [C.draws, C.mode])
 ok(draws[0] === 1 && draws[1] === 'meaning', 'a reopened panel draws once, by meaning, with no grouping by words first', JSON.stringify(draws))
 // a subgroup folds by its triangle

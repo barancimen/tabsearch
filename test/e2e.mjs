@@ -186,11 +186,13 @@ const delta = await open('/delta', '[::1]')
 ok((await beta.title()) === 'Beta Report', 'localhost reaches the test server')
 ok((await gamma.title()) === 'Gamma Notes', 'foo.localhost resolves and loads')
 
-const panel = await ctx.newPage()
+let panel = await ctx.newPage()
 const consoleProblems = []
-panel.on('console', (m) => {
-  if (m.type() !== 'log' && m.type() !== 'info') consoleProblems.push(m.text())
-})
+const listen = (pg) =>
+  pg.on('console', (m) => {
+    if (m.type() !== 'log' && m.type() !== 'info') consoleProblems.push(m.text())
+  })
+listen(panel)
 await panel.goto(`chrome-extension://${id}/sidepanel.html`)
 const text = (sel) => panel.textContent(sel)
 
@@ -212,6 +214,30 @@ const settle = async (q, dom) => {
 
 const CATS_SETTLE = 900 // a little more than the view's regrouping interval
 const p = (label, s) => console.log(label + ': ' + JSON.stringify(s))
+
+// Reloads the extension, which closes its pages, and opens the panel again once
+// the reloaded extension answers. Returns the new panel page.
+async function reloadExtension(old) {
+  // Chromium disables an unpacked extension that reloads without Developer
+  // mode, which anyone loading this one unpacked has on
+  const ext = await ctx.newPage()
+  await ext.goto('chrome://extensions/')
+  await ext.evaluate(() => new Promise((r) => chrome.developerPrivate.updateProfileConfiguration({ inDeveloperMode: true }, r)))
+  await ext.close()
+  const startedAt = await old.evaluate(() => performance.timeOrigin)
+  await old.evaluate(() => setTimeout(() => chrome.runtime.reload(), 50))
+  await old.waitForEvent('close', { timeout: 20000 }).catch(() => {})
+  for (let i = 0; i < 40; i++) {
+    const pg = await ctx.newPage()
+    try {
+      await pg.goto(`chrome-extension://${id}/sidepanel.html`, { timeout: 5000 })
+      if ((await pg.evaluate(() => performance.timeOrigin)) > startedAt) return pg
+    } catch (e) {}
+    await pg.close().catch(() => {})
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  throw new Error('the extension did not come back after reloading')
+}
 
 await panel.waitForFunction(
   () => /not searchable/.test(document.querySelector('#status').textContent),
@@ -439,6 +465,18 @@ await beta.waitForTimeout(400)
 await reopen()
 s = await settle('addedafterindex')
 ok(s.count === '0 matches', 'tab reloaded while the panel was closed is re-read', s.count)
+
+// --- reloading the extension keeps the saved index --------------------------
+await beta.evaluate(() => document.body.append('addedbeforereload'))
+const kept = await panel.evaluate(() => dbAll().then((r) => r.length))
+panel = await reloadExtension(panel)
+listen(panel)
+sw = ctx.serviceWorkers().find((w) => w.url().includes(id)) || sw
+await reopen()
+const keptAfter = await panel.evaluate(() => dbAll().then((r) => r.length))
+ok(kept > 0 && keptAfter >= kept, 'reloading the extension keeps the saved index', kept + ' then ' + keptAfter)
+s = await settle('addedbeforereload')
+ok(s.count === '0 matches', 'after a reload, unchanged tabs are not read again', s.count)
 
 // --- panel state survives closing the panel --------------------------------
 await panel.setViewportSize({ width: 320, height: 260 })

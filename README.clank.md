@@ -221,9 +221,12 @@ opens.
 Text that changes without a reload or a URL change, such as new chat messages or
 something typed into a field, stays out of date until you press `Reindex`.
 
-Saved text, including non-password field values, is written to disk and cleared
-at the next browser start or extension install or update. Incognito tabs are
-never saved.
+Saved text, including non-password field values, is written to disk along with
+each tab's word counts and model vector, and cleared at the next browser start
+or a fresh install. Reloading or updating the extension keeps it, so nothing is
+read or embedded again: tab ids are unchanged within a browser session, and each
+saved record is used only while its tab still shows the same address. Incognito
+tabs are never saved.
 
 ### Suspended tabs
 
@@ -311,8 +314,9 @@ setting does.
 `test/model.e2e.mjs` needs the model's folder and runs the real model in
 Chromium on eight tabs. It downloads the model (with Hugging Face's address
 answered from the folder), checks the browser's vectors against the reference
-vectors, reopens the panel, removes the download and loads the model from the
-folder. `SHOTS=<folder>` also saves pictures of the panel.
+vectors, reloads the extension, removes the download and loads the model from
+the folder. Both browser tests turn on Developer mode, as Chromium disables an
+unpacked extension that reloads without it. `SHOTS=<folder>` also saves pictures of the panel.
 
 `test/make-vectors.py` remakes the reference vectors after the fixtures or
 `embedInput()` change. It needs Python with onnxruntime, tokenizers and numpy.
