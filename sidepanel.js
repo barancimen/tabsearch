@@ -9,7 +9,7 @@ const COUNT = $('#count')
 const STATUS = $('#status')
 const BAD = $('#bad')
 const SEARCHBAR = $('#searchbar')
-const VIEWS = ['search', 'live', 'windows', 'subjects']
+const VIEWS = ['search', 'windows', 'subjects', 'live']
 
 const PER_TAB = 5 // snippets shown per tab
 const MAX_GROUPS = 400 // tabs listed

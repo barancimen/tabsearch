@@ -777,8 +777,10 @@ if (process.env.SHOTS) {
   await panel.emulateMedia({ colorScheme: 'light' })
   await panel.setViewportSize({ width: 1280, height: 720 })
 }
-const liveColor = await panel.$eval('#v-live', (b) => getComputedStyle(b).backgroundColor)
-ok(liveColor === 'rgb(34, 197, 94)', 'the Live tab is bright green when chosen', liveColor)
+const liveColor = await panel.$eval('#v-live', (b) => [getComputedStyle(b).backgroundColor, getComputedStyle(b).color])
+ok(liveColor[0] === 'rgb(34, 197, 94)' && liveColor[1] === 'rgb(255, 255, 255)', 'the Live tab is bright green with white text when chosen', JSON.stringify(liveColor))
+const lastTab = await panel.$eval('.tabs', (n) => [...n.querySelectorAll('button.view')].pop().id)
+ok(lastTab === 'v-live', 'Live is the last tab', lastTab)
 const pythonTab = await openHere(art('Python (programming language)'))
 await panel.waitForFunction((id) => S.cache.has(id), pythonTab, { timeout: 15000, polling: 200 })
 await panel.bringToFront()

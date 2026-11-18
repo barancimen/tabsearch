@@ -14,7 +14,7 @@ subject.
 
 ## Use
 
-The panel has four tabs along the top: Search, Live, Windows and Subjects.
+The panel has four tabs along the top: Search, Windows, Subjects and Live.
 Under them is the domain filter, which all four share, and in Search the search
 box below it. Opening the panel puts the cursor in the search box, or the focus
 on the list in the other tabs, so you can type or press Page Down at once.
@@ -68,7 +68,7 @@ state is kept in `chrome.storage.local`, so it also survives a browser restart.
 
 ## Live, Windows and Subjects
 
-The Live tab, bright green while chosen, lists every other tab by how alike it
+The Live tab, bright green with white text while chosen, lists every other tab by how alike it
 is to the tab you are looking at in the panel's window, most alike first, with
 a score from 0 to 1. It follows you as you switch tabs. Tabs are compared by
 meaning once the model is set up (see below) and by the words they share until
