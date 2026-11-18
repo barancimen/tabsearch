@@ -119,6 +119,7 @@ function showView(draw = true) {
   $('#v-cats').setAttribute('aria-selected', String(cats))
   SEARCHBAR.hidden = cats
   $('#catopts').hidden = !cats
+  $('#catnote').hidden = !cats
   RESULTS.hidden = cats
   CATS.hidden = !cats
   if (cats && draw) paintCats()
@@ -244,6 +245,7 @@ function domMatch(rec, f) {
 function extract(doc = document) {
   const parts = []
   let bodyLength = 0
+  let main = ''
   if (doc.title) parts.push(doc.title)
   const meta = doc.querySelector('meta[name="description"]')
   if (meta && meta.content) parts.push(meta.content)
@@ -252,19 +254,29 @@ function extract(doc = document) {
     const skip = new Set(SKIP.split(','))
     // Elements inside a skipped element are rare, and only they need the slow ancestor check.
     const nested = doc.body.querySelector('script *,style *,noscript *,template *')
-    const walker = doc.createTreeWalker(
-      doc.body,
-      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_CDATA_SECTION
-    )
-    const chunks = []
-    let n
-    while ((n = walker.nextNode())) {
-      const p = n.parentElement
-      if (nested ? !p.closest(SKIP) : !skip.has(p.localName)) chunks.push(n.data)
+    const textOf = (root) => {
+      const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_CDATA_SECTION)
+      const chunks = []
+      let n
+      while ((n = walker.nextNode())) {
+        const p = n.parentElement
+        if (nested ? !p.closest(SKIP) : !skip.has(p.localName)) chunks.push(n.data)
+      }
+      return chunks.join('').replace(/\s+/g, ' ').trim()
     }
-    const t = chunks.join('').replace(/\s+/g, ' ').trim()
+    const t = textOf(doc.body)
     bodyLength = t.length
     if (t) parts.push(t)
+    // The page's own content, without its menus, sidebars and footer, for
+    // grouping tabs by subject: the outermost <article>s (a post, a story), or
+    // else <main>. Pages without either are grouped on their whole text.
+    const articles = [...doc.body.querySelectorAll('article')]
+    let roots = articles.filter((a) => !articles.some((b) => b !== a && b.contains(a)))
+    if (!roots.length) roots = [...doc.body.querySelectorAll('main,[role="main"]')].slice(0, 1)
+    const content = roots.map(textOf).join('\n')
+    if (content.length >= 200) {
+      main = ((meta && meta.content ? meta.content + '\n' : '') + content).slice(0, 8000)
+    }
   }
   for (const f of doc.querySelectorAll('input,textarea')) {
     if (f.type === 'password') continue
@@ -274,6 +286,7 @@ function extract(doc = document) {
   return {
     url: location.href,
     text: parts.join('\n'),
+    main,
     // true in Chrome's viewer and in viewers that sit on top of it, like Scholar's
     pdf: doc.contentType === 'application/pdf',
     bodyLength,
@@ -356,7 +369,8 @@ function decode(xhr) {
   }
 }
 
-function saveTab(t, text) {
+// main: the page's own content for grouping, or '' to group on the whole text
+function saveTab(t, text, main = '') {
   const rec = {
     tabId: t.id,
     windowId: t.windowId,
@@ -366,6 +380,7 @@ function saveTab(t, text) {
     fav: t.favIconUrl || '',
     ...hostsOf(t.url),
     text,
+    main,
     hits: 0,
   }
   S.cache.set(t.id, rec)
@@ -402,7 +417,7 @@ async function readAsleep(t) {
   }
   const v = extract(new DOMParser().parseFromString(decode(xhr), 'text/html'))
   if (v.bodyLength < MIN_DOWNLOADED_TEXT) forget(t.id, NOT_LOADED)
-  else saveTab(t, v.text)
+  else saveTab(t, v.text, v.main)
 }
 
 async function readTab(t) {
@@ -417,10 +432,14 @@ async function readTab(t) {
       func: extract,
     })
     let pdfFailed = false
+    const mains = []
     const parts = await Promise.all(
       res.map(async (r) => {
         const v = r && r.result
-        if (!v || !v.pdf) return v && v.text
+        if (!v || !v.pdf) {
+          if (v && v.main) mains.push(v.main)
+          return v && v.text
+        }
         try {
           const body = await parsePdf((await download(v.url)).response)
           return body && withTitle(t, body)
@@ -434,7 +453,7 @@ async function readTab(t) {
       forget(t.id, pdfFailed ? 'PDF could not be read' : 'No text found')
       return
     }
-    saveTab(t, text)
+    saveTab(t, text, mains.join('\n').slice(0, 8000))
   } catch (e) {
     forget(t.id, 'Could not be read')
   }

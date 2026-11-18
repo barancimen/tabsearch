@@ -42,8 +42,30 @@
           <datalist id="doms"></datalist>
         </div>
       </div>
+      <div id="catnote" hidden></div>
       <details id="catopts" hidden>
-        <summary title="Change how tabs are grouped and named. Each change regroups at once.">Adjustments</summary>
+        <summary title="Set up the model, and change how tabs are grouped and named. Each change regroups at once.">Adjustments</summary>
+        <div id="modelbox" title="Tabs are grouped by meaning with MongoDB's mdbr-leaf-mt model, which runs on this computer. No page text is sent anywhere. Without the model, tabs are grouped by the words they share.">
+          <div class="settop"><span class="setname">Meaning model</span></div>
+          <div id="modelstate"></div>
+          <div class="row">
+            <input
+              id="modelfolder"
+              class="box"
+              type="text"
+              placeholder="Folder with the model"
+              autocomplete="off"
+              spellcheck="false"
+              title="A folder on this computer that holds mdbr-leaf-mt: tokenizer.json, and onnx/model_quantized.onnx with its _data file. A Hugging Face download folder works too. The extension needs permission to read files: in chrome://extensions, open Details for Tab Text Search and turn on &quot;Allow access to file URLs&quot;."
+            />
+            <button id="modeluse" type="button" title="Load the model from this folder. Empty the box and press this to stop using a folder.">Use folder</button>
+          </div>
+          <div class="row">
+            <button id="modeldl" type="button" title="Download the model from Hugging Face and keep it in the extension's storage. Only the model's files are fetched. Nothing about your tabs is sent.">Download the model</button>
+            <button id="modelrm" type="button" title="Delete the downloaded model from the extension's storage" hidden>Remove the download</button>
+          </div>
+        </div>
+        <div id="catmode"></div>
         <div id="catsliders"></div>
         <div class="row optbar">
           <button id="catreset" type="button" title="Put every setting back to how it started">Set all to default</button>
@@ -56,6 +78,7 @@
     <main id="cats" hidden></main>
     <script src="db.js"></script>
     <script src="cluster.js"></script>
+    <script src="model.js"></script>
     <script src="sidepanel.js"></script>
     <script src="categories.js"></script>
   </body>

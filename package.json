@@ -6,7 +6,8 @@
   "description": "Chrome extension: full text search across the content of every open tab.",
   "scripts": {
     "test": "node test/cluster.test.mjs && node test/e2e.mjs",
-    "test:unit": "node test/cluster.test.mjs"
+    "test:unit": "node test/cluster.test.mjs",
+    "test:model": "node test/model.e2e.mjs"
   },
   "devDependencies": {
     "playwright": "^1.64.0"

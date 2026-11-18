@@ -1,95 +1,63 @@
 'use strict'
 
-// The Categories view: every open tab, grouped by subject. Groups come from
-// cluster.js and are named by their most telling words.
+// The Categories view: every open tab, grouped by subject into categories and
+// subgroups (cluster.js). Tabs are compared by meaning once the embedding model
+// (model.js) is set up, and by the words they share until then.
 const CATS = $('#cats')
+const CATNOTE = $('#catnote')
 const CATS_MS = 600 // regrouping is coalesced to one per this interval
+const EMBED_VERSION = 1 // bump when embedInput() changes, so vectors are made again
+const EMBED_BATCH = 4 // tabs sent to the model at a time
 
 const C = {
   timer: 0,
   shown: '', // what the view on screen was drawn from
+  mode: '', // how the groups on screen were measured: meaning or words
   pendingScroll: null, // saved scroll position, applied by the first drawing
-  params: {}, // the settings moved away from their defaults
+  params: { meaning: {}, words: {} }, // the settings moved away from their defaults
   ready: null, // resolves once the saved settings are read
   regroupT: 0,
   saveT: 0,
+  vecs: new Map(), // tabId -> { key, vec } for tabs with no index record
+  embedding: false,
+  embedLeft: 0, // tabs still to embed in this round
+  embedBroken: '', // the model key embedding last failed with, so it is not retried in a loop
 }
 
-// The sliders under Adjustments. Each changes one of Cluster.DEFAULTS. A
-// slider with log set moves through its range by ratios rather than steps.
+// The sliders under Adjustments. Each changes a setting in Cluster.DEFAULTS.
+// The two thresholds have their own range for each way of measuring, and a
+// range with log set moves by ratios rather than steps.
 const SETTINGS = [
   {
-    key: 'join',
-    name: 'How alike tabs must be',
-    min: 0.005,
-    max: 0.2,
-    log: true,
-    show: (v) => v.toFixed(3),
+    key: 'category',
+    name: 'How alike tabs in a category must be',
+    ranges: { meaning: { min: 0.25, max: 0.8, step: 0.01 }, words: { min: 0.005, max: 0.2, log: true } },
     help:
-      'How much tabs must have in common to be grouped together. Higher gives smaller, ' +
-      'tighter groups and leaves more tabs under "Unlike the others". Lower gives fewer, ' +
-      'broader groups.',
+      'How much tabs must have in common to be put in the same category. Higher gives more, ' +
+      'smaller categories and leaves more tabs under "Unlike the others". Lower gives fewer, ' +
+      'broader categories.',
   },
   {
-    key: 'sameWindow',
+    key: 'subgroup',
+    name: 'How alike tabs in a subgroup must be',
+    ranges: { meaning: { min: 0.25, max: 0.9, step: 0.01 }, words: { min: 0.005, max: 0.3, log: true } },
+    help:
+      'Inside a category, tabs at least this alike form a subgroup. A category is only split ' +
+      'when it falls into two or more subgroups. Set it to the category value or lower for ' +
+      'no subgroups.',
+  },
+  {
+    key: 'window',
     name: 'How much sharing a window counts',
-    min: 1,
-    max: 3,
-    step: 0.1,
-    show: (v) => '×' + v.toFixed(1),
-    help:
-      'Tabs in the same window are treated as up to this many times more alike. At ×1, ' +
-      'windows are ignored. Tabs with nothing in common are never grouped just because ' +
-      'they share a window. The effect is weaker when most of your tabs are in one window, ' +
-      'because then sharing a window says little.',
-  },
-  {
-    key: 'titleWeight',
-    name: 'How much titles count',
-    min: 1,
-    max: 10,
-    step: 0.5,
-    show: (v) => '×' + v.toFixed(1),
-    help:
-      "A word in a tab's title counts as much as this many words in the page itself. " +
-      'Higher groups tabs more by what their titles say.',
-  },
-  {
-    key: 'siteWeight',
-    name: 'How much the website counts',
     min: 0,
-    max: 3,
-    step: 0.1,
-    show: (v) => v.toFixed(1),
+    max: 0.3,
+    step: 0.01,
+    show: (v) => Math.round(v * 100) + '%',
     help:
-      'Tabs from the same website are treated as a little more alike. This sets how much. ' +
-      "At 0 the website doesn't matter. A website most of your tabs share counts for " +
-      'very little either way.',
-  },
-  {
-    key: 'genericWeight',
-    name: 'How much everyday words count',
-    min: 0,
-    max: 1,
-    step: 0.05,
-    show: (v) => v.toFixed(2),
-    help:
-      'Common words that seldom say what a page is about, like "available", "official" ' +
-      'or "feature", count this much of a normal word. At 0 they are ignored, and at 1 ' +
-      'they count fully.',
-  },
-  {
-    key: 'vectorTerms',
-    name: 'Words compared per tab',
-    min: 20,
-    max: 400,
-    step: 10,
-    show: (v) => String(v),
-    help:
-      'Tabs are compared using only the words that best describe each one, this many ' +
-      "per tab. Fewer looks only at each page's main subject, so tabs need to match more " +
-      'closely and more are left on their own. More also takes in side topics, and can ' +
-      'join tabs that only touch on the same thing.',
+      'Tabs in the same window count as up to this much more alike. At 0%, windows are ' +
+      'ignored. Tabs with nothing in common are never grouped because they share a window. ' +
+      'The effect is weaker when most of your tabs are in one window, because then sharing a ' +
+      'window says little.',
   },
   {
     key: 'labelTerms',
@@ -98,28 +66,98 @@ const SETTINGS = [
     max: 5,
     step: 1,
     show: (v) => String(v),
-    help: 'How many words name each group.',
+    help: 'How many words name each category and subgroup.',
   },
 ]
 const LOG_STEPS = 1000 // positions of a log slider
 
+// --- Tabs as the clustering sees them ---
+
+// What the model reads for a tab: its title, then the page's own content, or
+// its whole text when no content could be told apart from the rest.
+function embedInput(t, rec) {
+  return ((t.title || '') + '\n' + (rec ? rec.main || rec.text : '')).slice(0, 6000)
+}
+
+const vecKey = (t) => Model.M.key + '\n' + EMBED_VERSION + '\n' + (t.title || '')
+
+// Browser pages and blank tabs with no text are not grouped: their titles say
+// nothing about a subject. Tabs that could not be read but are web pages, such
+// as suspended ones, are grouped on their titles.
+const skipTab = (t) => !S.cache.has(t.id) && (!t.title || !/^(https?|file):/i.test(t.url || ''))
+
+// A tab's vector from the model, if it has one for its current title.
+function vecFor(t) {
+  if (Model.M.state !== 'ready') return null
+  const key = vecKey(t)
+  const rec = S.cache.get(t.id)
+  if (rec) return rec.vecKey === key ? rec.vec : null
+  const v = C.vecs.get(t.id)
+  return v && v.key === key ? v.vec : null
+}
+
 // A tab's word counts are saved in its index record, so a reopened panel does not
 // count them again. A record's text never changes (a re-read makes a new record),
-// so the counts only go stale when the title or the site does.
+// so the counts only go stale when the title does.
 function docFor(t) {
   const rec = S.cache.get(t.id)
   const title = t.title || ''
-  const host = hostsOf(t.url).hostname
-  const doc = { id: t.id, windowId: t.windowId, index: t.index, title, text: rec ? rec.text : '', tab: t }
+  const doc = {
+    id: t.id,
+    windowId: t.windowId,
+    index: t.index,
+    title,
+    text: rec ? rec.text : '',
+    url: t.url || '',
+    tab: t,
+    vec: vecFor(t),
+    skip: skipTab(t),
+  }
   // a tab that could not be read is grouped on its title, which is quick to count
-  if (!rec) return { ...doc, terms: Cluster.terms(title, '', host) }
-  const key = Cluster.VERSION + '\n' + title + '\n' + host
+  if (!rec) return { ...doc, terms: Cluster.terms(title, '') }
+  const key = Cluster.VERSION + '\n' + title
   if (rec.termsKey !== key) {
-    rec.terms = Cluster.terms(title, rec.text, host)
+    rec.terms = Cluster.terms(title, rec.main || rec.text)
     rec.termsKey = key
     if (!t.incognito) dbPut(rec)
   }
   return { ...doc, terms: rec.terms }
+}
+
+// Embeds the tabs that have no vector yet, a few at a time, then regroups.
+async function embedMissing() {
+  if (C.embedding) return
+  C.embedding = true
+  try {
+    for (;;) {
+      if (Model.M.state !== 'ready') break
+      const tabs = (await chrome.tabs.query({})).filter((t) => t.id != null && !skipTab(t) && !vecFor(t))
+      C.embedLeft = tabs.length
+      showNote()
+      if (!tabs.length) break
+      const batch = tabs.slice(0, EMBED_BATCH)
+      const keys = batch.map(vecKey)
+      const vecs = await Model.embed(batch.map((t) => embedInput(t, S.cache.get(t.id))))
+      batch.forEach((t, i) => {
+        if (keys[i] !== vecKey(t)) return // the model or the title changed meanwhile
+        const rec = S.cache.get(t.id)
+        if (rec) {
+          rec.vec = vecs[i]
+          rec.vecKey = keys[i]
+          if (!t.incognito) dbPut(rec)
+        } else {
+          C.vecs.set(t.id, { key: keys[i], vec: vecs[i] })
+        }
+      })
+    }
+  } catch (e) {
+    // the model failed, or was switched and its own state says why
+    if (Model.M.state === 'ready') C.embedBroken = Model.M.key
+  }
+  C.embedding = false
+  C.embedLeft = 0
+  showNote()
+  paintCats()
 }
 
 function scheduleCats() {
@@ -132,20 +170,37 @@ function scheduleCats() {
 
 async function paintCats() {
   await C.ready
+  Model.start()
   let tabs = []
   try {
     tabs = (await chrome.tabs.query({})).filter((t) => t.id != null)
   } catch (e) {}
-  const { groups, rest } = Cluster.group(tabs.map(docFor), C.params)
-  drawCats(groups, rest, tabs)
+  const live = new Set(tabs.map((t) => t.id))
+  for (const id of C.vecs.keys()) if (!live.has(id)) C.vecs.delete(id)
+  const docs = tabs.map(docFor)
+  if (Model.M.state === 'ready' && C.embedBroken !== Model.M.key && docs.some((d) => !d.vec && !d.skip)) {
+    embedMissing()
+    // groups by meaning stay up while the new tabs are read, rather than
+    // switching to words and back
+    if (C.mode === 'meaning') return
+  }
+  drawCats(Cluster.group(docs, C.params), tabs)
 }
 
-function catRow(d, wins) {
+// --- Drawing ---
+
+function catRow(d, wins, r, byId) {
   const t = d.tab
   const row = el('div', 'tabhead cattab')
   const title = el('span', 'title', t.title || t.url)
   title.title = t.url || ''
   row.append(favicon(t.favIconUrl), title)
+  const dups = r.duplicates.get(d.id)
+  if (dups) {
+    const tag = el('span', 'dup', 'Duplicate')
+    tag.title = 'The same page is open in another tab: ' + dups.map((id) => byId.get(id).title || byId.get(id).url).join(', ')
+    row.append(tag)
+  }
   if (wins.size > 1) {
     const w = el('span', 'win', 'W' + wins.get(t.windowId))
     w.title = 'Window ' + wins.get(t.windowId)
@@ -155,15 +210,29 @@ function catRow(d, wins) {
   return row
 }
 
-function drawCats(groups, rest, tabs) {
+function head(cls, name, n, help) {
+  const h = el('div', cls)
+  const label = el('span', cls === 'cathead' ? 'catname' : 'subname', name)
+  label.title = help || name
+  h.append(label, el('span', 'badge', String(n)))
+  return h
+}
+
+function drawCats(r, tabs) {
+  C.mode = r.mode
+  showNote()
+  showSettings()
   // windows numbered in Chrome's order, for the W1, W2 tags
   const wins = new Map()
   for (const id of [...new Set(tabs.map((t) => t.windowId))].sort((a, b) => a - b)) {
     wins.set(id, wins.size + 1)
   }
+  const ids = (list) => list.map((d) => [d.id, d.title, d.tab.favIconUrl])
   const what = JSON.stringify([
-    groups.map((g) => [g.label, g.tabs.map((d) => [d.id, d.title, d.tab.favIconUrl])]),
-    rest.map((d) => [d.id, d.title, d.tab.favIconUrl]),
+    r.mode,
+    r.categories.map((c) => [c.label, ids(c.loose), c.subgroups.map((s) => [s.label, ids(s.tabs)])]),
+    ids(r.rest),
+    [...r.duplicates.keys()],
     [...wins],
   ])
   if (what === C.shown) return
@@ -174,26 +243,36 @@ function drawCats(groups, rest, tabs) {
     CATS.append(el('div', 'empty', 'No open tabs.'))
     return
   }
-  if (!groups.length) {
+  if (!r.categories.length) {
     CATS.append(el('div', 'empty', 'No two tabs are about the same thing.'))
   }
+  const byId = new Map(tabs.map((t) => [t.id, t]))
   const frag = document.createDocumentFragment()
-  for (const g of groups) {
+  for (const c of r.categories) {
     const sec = el('section', 'group cat')
-    const head = el('div', 'cathead')
-    const name = el('span', 'catname', g.label)
-    name.title = g.label
-    head.append(name, el('span', 'badge', String(g.tabs.length)))
-    sec.append(head)
-    for (const d of g.tabs) sec.append(catRow(d, wins))
+    sec.append(head('cathead', c.label, c.tabs.length))
+    if (!c.subgroups.length) {
+      for (const d of c.tabs) sec.append(catRow(d, wins, r, byId))
+    } else {
+      for (const s of c.subgroups) {
+        const sub = el('div', 'sub')
+        sub.append(head('subhead', s.label, s.tabs.length))
+        for (const d of s.tabs) sub.append(catRow(d, wins, r, byId))
+        sec.append(sub)
+      }
+      if (c.loose.length) {
+        const sub = el('div', 'sub other')
+        sub.append(head('subhead', 'Other', c.loose.length, 'Tabs in this category that are in no subgroup'))
+        for (const d of c.loose) sub.append(catRow(d, wins, r, byId))
+        sec.append(sub)
+      }
+    }
     frag.append(sec)
   }
-  if (rest.length) {
+  if (r.rest.length) {
     const sec = el('section', 'group cat rest')
-    const head = el('div', 'cathead')
-    head.append(el('span', 'catname', 'Unlike the others'), el('span', 'badge', String(rest.length)))
-    sec.append(head)
-    for (const d of rest) sec.append(catRow(d, wins))
+    sec.append(head('cathead', 'Unlike the others', r.rest.length))
+    for (const d of r.rest) sec.append(catRow(d, wins, r, byId))
     frag.append(sec)
   }
   CATS.append(frag)
@@ -205,43 +284,112 @@ function drawCats(groups, rest, tabs) {
   }
 }
 
+// --- The model ---
+
+const mb = (n) => (n / 1e6).toFixed(1)
+
+// The line above the groups that says how they were made.
+function showNote() {
+  const m = Model.M
+  let s
+  if (m.state === 'downloading') s = `Downloading the model: ${mb(m.progress)} of ${mb(Model.DOWNLOAD_BYTES)} MB.`
+  else if (m.state === 'loading') s = 'Loading the model.'
+  else if (m.state === 'ready' && C.embedLeft) s = `Reading the meaning of ${C.embedLeft} more tabs.`
+  else if (C.mode === 'meaning') s = 'Grouped by meaning.'
+  else if (m.state === 'error') s = 'The model could not be loaded, so tabs are grouped by the words they share. See Adjustments.'
+  else if (m.state === 'ready') s = 'The model could not read every tab, so tabs are grouped by the words they share.'
+  else s = 'Grouped by the words tabs share. To group them by meaning, set up the model under Adjustments.'
+  CATNOTE.textContent = s
+}
+
+function showModel() {
+  const m = Model.M
+  let s
+  if (m.state === 'off') s = 'Not set up. Tabs are grouped by the words they share.'
+  else if (m.state === 'loading') s = 'Loading.'
+  else if (m.state === 'downloading') s = `Downloading: ${mb(m.progress)} of ${mb(Model.DOWNLOAD_BYTES)} MB.`
+  else if (m.state === 'ready') s = m.source === 'folder' ? 'Ready, loaded from the folder.' : 'Ready, loaded from the download.'
+  else s = m.error
+  $('#modelstate').textContent = s
+  $('#modelstate').classList.toggle('bad', m.state === 'error')
+  if (document.activeElement !== $('#modelfolder')) $('#modelfolder').value = m.folder
+  $('#modeldl').hidden = m.downloaded
+  $('#modeldl').disabled = m.state === 'downloading'
+  $('#modeldl').textContent = m.state === 'downloading' ? 'Downloading' : `Download the model (${Math.round(Model.DOWNLOAD_BYTES / 1e6)} MB)`
+  $('#modelrm').hidden = !m.downloaded
+  showNote()
+}
+
+Model.M.onchange = () => {
+  showModel()
+  regroup()
+}
+
+$('#modeluse').addEventListener('click', () => Model.useFolder($('#modelfolder').value))
+$('#modelfolder').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') Model.useFolder($('#modelfolder').value)
+})
+$('#modeldl').addEventListener('click', () => Model.download())
+$('#modelrm').addEventListener('click', () => Model.removeDownload())
+
 // --- Adjustments ---
 
-const settingValue = (s) => (s.key in C.params ? C.params[s.key] : Cluster.DEFAULTS[s.key])
+// Settings apply to how the tabs are measured now: by meaning once the model is
+// ready, otherwise by words.
+const settingMode = () => (Model.M.state === 'ready' ? 'meaning' : 'words')
+const rangeOf = (s) => (s.ranges ? s.ranges[settingMode()] : s)
+const settingValue = (s) => {
+  const own = C.params[settingMode()]
+  return s.key in own ? own[s.key] : Cluster.DEFAULTS[settingMode()][s.key]
+}
+const showValue = (s, v) => (s.show ? s.show(v) : v.toFixed(rangeOf(s).log ? 3 : 2))
 
 function toPos(s, v) {
-  return s.log ? Math.round((Math.log(v / s.min) / Math.log(s.max / s.min)) * LOG_STEPS) : v
+  const r = rangeOf(s)
+  return r.log ? Math.round((Math.log(v / r.min) / Math.log(r.max / r.min)) * LOG_STEPS) : v
 }
 
 function fromPos(s, pos) {
-  if (!s.log) return Number(pos)
-  const v = s.min * Math.pow(s.max / s.min, pos / LOG_STEPS)
-  return Number(v.toPrecision(3))
+  const r = rangeOf(s)
+  if (!r.log) return Number(pos)
+  return Number((r.min * Math.pow(r.max / r.min, pos / LOG_STEPS)).toPrecision(3))
 }
 
 // Saved settings, keeping only known ones within their slider's range.
 function cleanParams(values) {
-  const out = {}
-  for (const s of SETTINGS) {
-    const v = values && values[s.key]
-    if (typeof v === 'number' && v >= s.min && v <= s.max) out[s.key] = v
+  const out = { meaning: {}, words: {} }
+  for (const mode of ['meaning', 'words']) {
+    for (const s of SETTINGS) {
+      const r = s.ranges ? s.ranges[mode] : s
+      const v = values && values[mode] && values[mode][s.key]
+      if (typeof v === 'number' && v >= r.min && v <= r.max) out[mode][s.key] = v
+    }
   }
   return out
 }
 
 function showSetting(s) {
-  const r = s.row
-  r.input.value = String(toPos(s, settingValue(s)))
-  r.val.textContent = s.show(settingValue(s))
-  r.def.hidden = !(s.key in C.params)
+  const r = rangeOf(s)
+  const row = s.row
+  row.input.min = r.log ? '0' : String(r.min)
+  row.input.max = r.log ? String(LOG_STEPS) : String(r.max)
+  row.input.step = r.log ? '1' : String(r.step)
+  row.input.value = String(toPos(s, settingValue(s)))
+  row.val.textContent = showValue(s, settingValue(s))
+  row.def.hidden = !(s.key in C.params[settingMode()])
+  row.def.title = 'Back to ' + showValue(s, Cluster.DEFAULTS[settingMode()][s.key])
 }
 
 function showSettings() {
   for (const s of SETTINGS) showSetting(s)
-  $('#catreset').disabled = !Object.keys(C.params).length
+  $('#catreset').disabled = !Object.keys(C.params[settingMode()]).length
+  $('#catmode').textContent =
+    settingMode() === 'meaning'
+      ? 'These settings apply while tabs are grouped by meaning.'
+      : 'These settings apply while tabs are grouped by the words they share.'
 }
 
-// Regroups shortly after a slider moves, at most once per this many ms.
+// Regroups shortly after a setting changes, at most once per this many ms.
 function regroup() {
   if (C.regroupT || S.view !== 'cats') return
   C.regroupT = setTimeout(() => {
@@ -258,10 +406,11 @@ function saveParams() {
 }
 
 function setParam(s, v) {
-  const d = Cluster.DEFAULTS[s.key]
+  const own = C.params[settingMode()]
+  const d = Cluster.DEFAULTS[settingMode()][s.key]
   // a log slider can't land exactly on its default
-  if (Math.abs(v - d) <= Math.abs(d) * 0.01) delete C.params[s.key]
-  else C.params[s.key] = v
+  if (Math.abs(v - d) <= Math.abs(d) * 0.01) delete own[s.key]
+  else own[s.key] = v
   showSettings()
   saveParams()
   regroup()
@@ -276,36 +425,35 @@ for (const s of SETTINGS) {
   const val = el('span', 'setval')
   const def = el('button', 'setdef', 'default')
   def.type = 'button'
-  def.title = 'Back to ' + s.show(Cluster.DEFAULTS[s.key])
   const input = el('input')
   input.type = 'range'
   input.id = 'set-' + s.key
-  input.min = s.log ? '0' : String(s.min)
-  input.max = s.log ? String(LOG_STEPS) : String(s.max)
-  input.step = s.log ? '1' : String(s.step)
   top.append(name, val, def)
   box.append(top, input)
   $('#catsliders').append(box)
   s.row = { input, val, def }
   input.addEventListener('input', () => setParam(s, fromPos(s, input.value)))
-  def.addEventListener('click', () => setParam(s, Cluster.DEFAULTS[s.key]))
+  def.addEventListener('click', () => setParam(s, Cluster.DEFAULTS[settingMode()][s.key]))
 }
 
 $('#catreset').addEventListener('click', () => {
-  C.params = {}
+  C.params[settingMode()] = {}
   showSettings()
   saveParams()
   regroup()
 })
 $('#catopts').addEventListener('toggle', () => saveUi())
 
-// Settings moved in another window's panel apply here too.
+// Settings and the model folder changed in another window's panel apply here too.
 chrome.storage.onChanged.addListener((changes, area) => {
-  const p = area === 'local' && changes.catParams && changes.catParams.newValue
-  if (!p || p.from === ME) return
-  C.params = cleanParams(p.values)
-  showSettings()
-  regroup()
+  if (area !== 'local') return
+  const p = changes.catParams && changes.catParams.newValue
+  if (p && p.from !== ME) {
+    C.params = cleanParams(p.values)
+    showSettings()
+    regroup()
+  }
+  if (changes.modelFolder) Model.folderChanged(changes.modelFolder.newValue || '')
 })
 
 C.ready = chrome.storage.local
@@ -314,7 +462,10 @@ C.ready = chrome.storage.local
     C.params = cleanParams(r.catParams && r.catParams.values)
   })
   .catch(() => {})
-  .finally(showSettings)
+  .finally(() => {
+    showSettings()
+    showModel()
+  })
 
 chrome.tabs.onMoved.addListener(scheduleCats)
 chrome.tabs.onAttached.addListener(scheduleCats)

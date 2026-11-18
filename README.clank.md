@@ -59,79 +59,108 @@ state is kept in `chrome.storage.local`, so it also survives a browser restart.
 
 ## Categories
 
-The **Categories** view lists every open tab grouped by what the pages are
-about, across all windows. Tabs that resemble no other tab are listed last under
-"Unlike the others". With more than one window open, each tab shows which
-window it is in (`W1`, `W2`, ...). Click a tab to switch to it. The groups are
-redrawn as tabs open, close, load or move.
+The Categories view lists every open tab grouped by subject, across all
+windows. Large categories are split into subgroups when they fall into two or
+more of them, and tabs in no subgroup are listed under "Other". Tabs that
+resemble no other tab are listed last under "Unlike the others", along with
+blank tabs and browser pages that have no text. With more than one window open,
+each tab shows which window it is in (`W1`, `W2`, ...). A page open in two tabs
+is marked "Duplicate", and hovering the mark names the other tab. Click a tab
+to switch to it. The groups are redrawn as tabs open, close, load or move.
 
-How tabs are grouped (`cluster.js`):
+A line above the groups says how they were made: by meaning, with the model
+below, or by the words the tabs share, when the model is not set up.
 
-- Each tab is described by its title (weighted 3x by default), the indexed text, two-word
-  phrases that recur in it, and a little by its site. Stop words, words that
-  every website repeats ("login", "cookies"), numbers and years are dropped, and
-  everyday English words count for less. A tab that could not be read is grouped
-  on its title alone.
-- Two tabs' resemblance is the cosine similarity of their TF-IDF vectors (the
-  100 most telling terms of each tab).
-- **Windows are a clue, content decides.** Resemblance between two tabs in the
-  same window is multiplied by up to 1.5, so a weak likeness is enough to group
-  them. Tabs whose text has nothing in common score 0, and multiplying 0 gives
-  0, so sharing a window never groups them. The boost shrinks when most tabs
-  share a window, and is gone with a single window, because then sharing one
-  says nothing.
-- Groups form by average linkage: the two most alike groups merge, over and
-  over, while their tabs' average resemblance is at least 0.02.
+### The meaning model
 
-What is redone when:
+Tabs are compared by meaning with MongoDB's
+[mdbr-leaf-mt](https://huggingface.co/MongoDB/mdbr-leaf-mt), a small embedding
+model (23 million parameters) made for grouping and similarity. It runs inside
+the extension, in a worker (`embed-worker.js`), with onnxruntime-web and
+Hugging Face's tokenizer, both in `vendor/`. No page text leaves the computer.
+The model's files are not part of the extension. Under Adjustments you either:
 
-- Each tab's word counts are computed the first time it is grouped and saved in
-  its index record, so reopening the panel does not count them again. They are
-  redone when the tab is re-read or its title or site changes, and when
-  `Cluster.VERSION` in `cluster.js` is bumped.
-- The grouping itself runs over all tabs each time the view is drawn, because a
-  new tab changes how rare each word is across the tabs. It runs at most once
-  per 0.6 s, only while the Categories view is showing, and the list is redrawn
-  only when the groups change.
+- point it at a folder on this computer that holds `tokenizer.json` and
+  `onnx/model_quantized.onnx` with its `model_quantized.onnx_data` file. A
+  Hugging Face download folder (`models--MongoDB--mdbr-leaf-mt`) works as it
+  is. Chrome only lets the extension read files once "Allow access to file
+  URLs" is on in the extension's Details in `chrome://extensions`, and the
+  panel says so when it is off.
+- or download it. The four files (24 MB) come from MongoDB's Hugging Face
+  repository at a fixed commit and are kept in the extension's own storage
+  until you remove them. The requests carry nothing about your tabs.
 
-Group names:
+The model is loaded the first time the Categories view is shown. Each tab is
+read from its title, then the page's own content, cut to the model's limit of
+512 tokens. The page's own content is the text of its outermost `<article>`
+elements, or else of `<main>`, with the meta description in front, so a post
+on X or Reddit is read without the site's menus, sidebars and footer. Pages
+without either element are read whole. A tab that could not be read is read
+from its title. Each tab's vector is saved in its index record with the model
+and title it was made from, so reopening the panel embeds nothing, and a new
+tab is embedded on its own. While new tabs are embedded the groups on screen
+stay as they are. On this test machine, one slow CPU core, eight tabs took a
+few seconds; a laptop is much faster.
 
-- A group is named by its three most telling words, such as "Italian, Dishes,
-  Pasta". These are words that weigh a lot in most of the group's tabs and
-  little in the others, written as the pages write them ("GitHub", "NASA").
-  Forms of one word ("Italy", "Italian") are not repeated. Names are computed
-  each time, so a group's name can change as tabs join or leave it. No AI model
-  is used, and nothing leaves the computer.
+When any tab has no vector, for example while the model loads or when it is
+not set up, every tab is compared by its words instead.
+
+### How tabs are grouped
+
+`cluster.js` does the grouping, in the same way for both kinds of resemblance:
+
+- Two tabs' resemblance is the cosine similarity of their model vectors, or of
+  their TF-IDF word vectors. The words come from the title (counted three
+  times) and the page's own content, with stop words, social media buttons
+  ("Reposts", "Likes"), numbers and years dropped, and everyday English words
+  counted at 0.3. Two-word phrases that recur count as terms. The website plays
+  no part.
+- Tabs in the same window count as up to 5% more alike. The boost shrinks when
+  most tabs share a window, and is gone with a single window, because sharing
+  one then says little. It only scales a resemblance above zero, so tabs with
+  nothing in common are never grouped because they share a window.
+- Groups form by average linkage. The two groups whose tabs are most alike on
+  average merge, over and over. The groups as they stand when no pair reaches
+  the subgroup threshold are the subgroups, and merging continues to the
+  category threshold for the categories.
+- A category is named by the words that weigh a lot in most of its tabs and
+  little in other tabs, and a subgroup by the words that set it apart from the
+  rest of its category, without repeating the category's words. A phrase
+  ("Black hole") is used instead of one of its words when it scores at least
+  half as well. Words are written as the pages write them ("GitHub", "NASA"),
+  and a page open twice counts once.
+- Two tabs are duplicates when their addresses are the same apart from the
+  `#` part, or when they are almost identical (0.97 by meaning, 0.9 by words).
+
+Each tab's word counts are saved in its index record, like its vector, and
+redone when its title changes or `Cluster.VERSION` is bumped. The grouping
+itself runs over all tabs, at most once per 0.6 s and only while the view is
+showing, and the list is redrawn only when the groups change.
 
 ### Adjustments
 
-**Adjustments**, under the view buttons in Categories, opens seven sliders. Each
-regroups the tabs as it moves and has a plain-English description on hover. A
-moved slider shows a *default* button, and *Set all to default* resets them all.
-The settings are saved and shared by the panels of every window, and Search
-ignores them.
+Adjustments, under the view buttons in Categories, holds the model controls
+and four sliders. Each slider regroups the tabs as it moves and has a
+description on hover. A moved slider shows a *default* button, and *Set all to
+default* resets them all. Meaning and words measure resemblance on different
+scales, so each keeps its own settings, and the sliders show the ones in use.
+The settings are saved and shared by the panels of every window.
 
-| Slider | Setting in `Cluster.DEFAULTS` | Default |
+| Slider | By meaning | By words |
 |---|---|---|
-| How alike tabs must be | `join`, the average resemblance needed to merge | 0.02 (0.005–0.2, moves by ratios) |
-| How much sharing a window counts | `sameWindow`, the most a shared window multiplies a resemblance by | ×1.5 (1–3; 1 ignores windows) |
-| How much titles count | `titleWeight`, body words a title word is worth | ×3 (1–10) |
-| How much the website counts | `siteWeight` | 1 (0–3; 0 ignores the site) |
-| How much everyday words count | `genericWeight` | 0.3 (0–1) |
-| Words compared per tab | `vectorTerms` | 100 (20–400) |
-| Words in each name | `labelTerms` | 3 (1–5) |
+| How alike tabs in a category must be | 0.45 (0.25–0.8) | 0.02 (0.005–0.2) |
+| How alike tabs in a subgroup must be | 0.62 (0.25–0.9) | 0.08 (0.005–0.3) |
+| How much sharing a window counts | 5% (0–30%) | 5% (0–30%) |
+| Words in each name | 3 (1–5) | 3 (1–5) |
 
-They are applied when grouping, not when counting: a tab's saved counts keep
-title and text apart and unweighted (`[term, times in text, times in title]`),
-so moving a slider never re-reads or recounts a page. Which 400 terms a page
-keeps, and whether a phrase recurs often enough to count, are decided with the
-default weights.
-
-The thresholds were tuned on Wikipedia articles from six subjects: full
-articles, and the same articles cut to 8,000 and 3,000 characters to stand in
-for shorter web pages. Each was tried with one window, one window per tab, and
-windows that mix subjects. Text without spaces between words (Chinese,
-Japanese) is not split into words, so such pages group poorly.
+The thresholds were tuned on 12 Wikipedia articles from five subjects and 8
+made-up X, Reddit and YouTube pages on the same subjects, each with its site's
+real menus, sidebars and footer (`test/fixtures/`). By meaning, every category
+threshold from 0.40 to 0.55 puts all 20 pages with their subject and none
+elsewhere; below 0.38 everything merges. By words, 0.01 to 0.02 does the same.
+Posts on X about different subjects end up apart either way. Text without
+spaces between words (Chinese, Japanese) is not split into words, so such
+pages group poorly by words.
 
 ## What gets indexed
 
@@ -208,7 +237,11 @@ scrolling to the match.
 | `scripting` | Inject the extractor and the reveal helper |
 | `sidePanel` | Show the search UI next to the page |
 | `storage` | Remember the panel's state between opens and across windows |
-| `<all_urls>` | Read text from any site and download PDFs and suspended pages. There is no narrower permission that can read tabs you are not looking at |
+| `<all_urls>` | Read text from any site and download PDFs and suspended pages. There is no narrower permission that can read tabs you are not looking at. It also covers downloading the model from Hugging Face |
+
+The manifest allows `'wasm-unsafe-eval'` on the extension's pages, which lets
+the model's runtime compile its WebAssembly. It allows nothing else beyond the
+default policy.
 
 ## Files
 
@@ -219,12 +252,18 @@ scrolling to the match.
     sidepanel.css      panel styles, light and dark
     sidepanel.js       extraction, index, search, rendering, navigation
     cluster.js         groups tabs by subject and picks words to name the groups
+    model.js           finds, downloads and loads the meaning model
+    embed-worker.js    runs the model away from the panel's page
     categories.js      the Categories view
     vendor/pdfjs/      pdf.js, used to read PDF text
+    vendor/ort/        onnxruntime-web, runs the model
+    vendor/tokenizers/ Hugging Face's tokenizer for JavaScript
     icons/             toolbar icons
     test/e2e.mjs       end to end test
     test/cluster.test.mjs   unit test for cluster.js, plain Node
-    test/fixtures/     Wikipedia article text used by both tests
+    test/model.e2e.mjs end to end test of grouping by meaning with the real model
+    test/make-vectors.py    makes the model vectors the unit test uses
+    test/fixtures/     Wikipedia articles, made-up social media pages, and their vectors
 
 ## Test
 
@@ -233,9 +272,22 @@ known text on four loopback hostnames (`127.0.0.1`, `localhost`,
 `foo.localhost`, `[::1]`), suspends some of the tabs, drives the side panel, and
 asserts on the rendered results. For Categories it opens Wikipedia articles in
 two windows that mix subjects, and moves the Adjustments sliders.
-`npm run test:unit` runs only the clustering test, in about a second, including
-what each setting does to the grouping.
+`npm run test:unit` runs only the clustering test, in a few seconds. It groups
+the 20 fixture pages by words and by meaning, using the vectors in
+`test/fixtures/vectors.json`, under three window layouts, and checks what each
+setting does.
+
+`test/model.e2e.mjs` needs the model's folder and runs the real model in
+Chromium on eight tabs. It downloads the model (with Hugging Face's address
+answered from the folder), checks the browser's vectors against the reference
+vectors, reopens the panel, removes the download and loads the model from the
+folder. `SHOTS=<folder>` also saves pictures of the panel.
+
+`test/make-vectors.py` remakes the reference vectors after the fixtures or
+`embedInput()` change. It needs Python with onnxruntime, tokenizers and numpy.
 
     npm install
     npx playwright install chromium
     npm test
+    node test/model.e2e.mjs /path/to/mdbr-leaf-mt
+    python test/make-vectors.py /path/to/mdbr-leaf-mt

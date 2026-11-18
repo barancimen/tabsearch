@@ -1,0 +1,77 @@
+{
+ "note": "Made-up pages in the style of X, Reddit and YouTube, with each site's menus, sidebars and footers. The post is in article; everything else is the site's own text.",
+ "pages": {
+  "X: fresh pasta": {
+   "topic": "food",
+   "host": "x.com",
+   "title": "Marco Rossi on X: \"Fresh pasta tip: use 00 flour with a bit of semolina, and egg yolks only for tagliatelle. \" / X",
+   "nav": "Home Explore Notifications Messages Grok Lists Bookmarks Communities Premium Verified Orgs Profile More Post",
+   "article": "Post See new posts Conversation Marco Rossi @chefmarco Fresh pasta tip: use 00 flour with a bit of semolina, and egg yolks only for tagliatelle. Knead ten minutes, rest the dough thirty, roll it thin. Tonight it's cacio e pepe with pecorino romano and lots of black pepper. 10:42 AM · Nov 3, 2026 1.2M Views 230 Reposts 41 Quotes 2,104 Likes 312 Bookmarks Giulia @giu_cooks · 2h Replying to @chefmarco Yolks only makes such a silky dough. Do you salt the pasta water like the sea? 12 Likes Tom @tomeats · 2h Replying to @chefmarco Tried your cacio e pepe recipe, the sauce finally didn't clump. Pasta water starch is the trick. 12 Likes Ana @ana_kitchen · 2h Replying to @chefmarco Semolina on the board stops the sheets sticking too. 12 Likes",
+   "aside": "Search Subscribe to Premium Subscribe to unlock new features and if eligible, receive a share of revenue. Subscribe What's happening Trending in United States #MondayMotivation 12.5K posts Sports · Trending Lakers 45K posts Politics · Trending Senate vote 98K posts Entertainment · Trending Taylor Swift 210K posts Show more Who to follow NBA @NBA Follow NASA @NASA Follow Elon Musk @elonmusk Follow Show more",
+   "footer": "Terms of Service Privacy Policy Cookie Policy Accessibility Ads info More © 2026 X Corp."
+  },
+  "X: Rust release": {
+   "topic": "code",
+   "host": "x.com",
+   "title": "Rust Language on X: \"Rust 1.95 is out! This release speeds up incremental compile times, stabilises async closu\" / X",
+   "nav": "Home Explore Notifications Messages Grok Lists Bookmarks Communities Premium Verified Orgs Profile More Post",
+   "article": "Post See new posts Conversation Rust Language @rustlang Rust 1.95 is out! This release speeds up incremental compile times, stabilises async closures, and improves borrow checker error messages. Update with rustup update stable and read the release notes on the blog. 10:42 AM · Nov 3, 2026 1.2M Views 230 Reposts 41 Quotes 2,104 Likes 312 Bookmarks Dev Sam @samcodes · 2h Replying to @rustlang Async closures stable at last, my tokio code gets so much cleaner. 12 Likes Lena @lena_dev · 2h Replying to @rustlang Cargo builds about 20% faster on our workspace with the new incremental compiler. 12 Likes Kai @kai_sys · 2h Replying to @rustlang The new borrow checker diagnostics explain lifetimes much better. 12 Likes",
+   "aside": "Search Subscribe to Premium Subscribe to unlock new features and if eligible, receive a share of revenue. Subscribe What's happening Trending in United States #MondayMotivation 12.5K posts Sports · Trending Lakers 45K posts Politics · Trending Senate vote 98K posts Entertainment · Trending Taylor Swift 210K posts Show more Who to follow NBA @NBA Follow NASA @NASA Follow Elon Musk @elonmusk Follow Show more",
+   "footer": "Terms of Service Privacy Policy Cookie Policy Accessibility Ads info More © 2026 X Corp."
+  },
+  "X: galaxy image": {
+   "topic": "space",
+   "host": "x.com",
+   "title": "NASA Webb Telescope on X: \"Webb's new infrared image shows the spiral galaxy NGC 1566, 60 million light-years away. D\" / X",
+   "nav": "Home Explore Notifications Messages Grok Lists Bookmarks Communities Premium Verified Orgs Profile More Post",
+   "article": "Post See new posts Conversation NASA Webb Telescope @NASAWebb Webb's new infrared image shows the spiral galaxy NGC 1566, 60 million light-years away. Dust lanes glow along its arms, and at its bright core a supermassive black hole is pulling in gas and stars. 10:42 AM · Nov 3, 2026 1.2M Views 230 Reposts 41 Quotes 2,104 Likes 312 Bookmarks Astro Jen @astrojen · 2h Replying to @NASAWebb The detail in those spiral arms is unreal. How many stars are in that galaxy? 12 Likes Space Fan @orbitfan · 2h Replying to @NASAWebb Love that you can see star forming regions in the dust. 12 Likes Dr. Ray @raycosmos · 2h Replying to @NASAWebb Active galactic nucleus plus infrared, perfect target for Webb. 12 Likes",
+   "aside": "Search Subscribe to Premium Subscribe to unlock new features and if eligible, receive a share of revenue. Subscribe What's happening Trending in United States #MondayMotivation 12.5K posts Sports · Trending Lakers 45K posts Politics · Trending Senate vote 98K posts Entertainment · Trending Taylor Swift 210K posts Show more Who to follow NBA @NBA Follow NASA @NASA Follow Elon Musk @elonmusk Follow Show more",
+   "footer": "Terms of Service Privacy Policy Cookie Policy Accessibility Ads info More © 2026 X Corp."
+  },
+  "X: mortgage rates": {
+   "topic": "money",
+   "host": "x.com",
+   "title": "Housing Wire on X: \"Mortgage rates fell to 5.8% this week, the lowest in two years. A 30-year fixed loan on a \" / X",
+   "nav": "Home Explore Notifications Messages Grok Lists Bookmarks Communities Premium Verified Orgs Profile More Post",
+   "article": "Post See new posts Conversation Housing Wire @housingwire Mortgage rates fell to 5.8% this week, the lowest in two years. A 30-year fixed loan on a $400,000 home now costs about $300 less per month than in spring, and refinancing applications jumped 40%. 10:42 AM · Nov 3, 2026 1.2M Views 230 Reposts 41 Quotes 2,104 Likes 312 Bookmarks Mike @mike_realtor · 2h Replying to @housingwire Buyers are back. Rate locks and refinance requests are up all over. 12 Likes Priya @priyafinance · 2h Replying to @housingwire Should I refinance from 7.1% now or wait for the Fed to cut again? 12 Likes Bank Bob @bobloans · 2h Replying to @housingwire Remember closing costs and points when you compare loan offers. 12 Likes",
+   "aside": "Search Subscribe to Premium Subscribe to unlock new features and if eligible, receive a share of revenue. Subscribe What's happening Trending in United States #MondayMotivation 12.5K posts Sports · Trending Lakers 45K posts Politics · Trending Senate vote 98K posts Entertainment · Trending Taylor Swift 210K posts Show more Who to follow NBA @NBA Follow NASA @NASA Follow Elon Musk @elonmusk Follow Show more",
+   "footer": "Terms of Service Privacy Policy Cookie Policy Accessibility Ads info More © 2026 X Corp."
+  },
+  "Reddit: risotto": {
+   "topic": "food",
+   "host": "www.reddit.com",
+   "title": "Why does my risotto turn out gluey instead of creamy? : r/Cooking",
+   "nav": "Skip to main content Open menu Open navigation Go to Reddit Home Get App Log In Expand user menu Home Popular Answers Explore All Communities Resources About Reddit Advertise Help Blog Careers Press",
+   "article": "r/Cooking • 5 hr. ago Why does my risotto turn out gluey instead of creamy? I use arborio rice, toast it in butter, add white wine, then hot stock one ladle at a time while stirring. After 18 minutes it's thick and gluey. What am I doing wrong? Upvote 342 Downvote 87 Go to comments Share Sort by: Best You're probably overcooking it. Take it off when the rice is still al dente and finish with butter and parmesan off the heat. Reply Award Share Keep the stock at a simmer and don't stir constantly, just often. Carnaroli rice is more forgiving than arborio. Reply Award Share Loose and wavy is what you want, all'onda. It thickens as it sits on the plate. Reply Award Share",
+   "aside": "Community Info Members Online Top 1% Rank by size Moderators Message Mods View all moderators Related communities",
+   "footer": "Reddit Rules Privacy Policy User Agreement Accessibility Reddit, Inc. © 2026. All rights reserved."
+  },
+  "Reddit: async JavaScript": {
+   "topic": "code",
+   "host": "www.reddit.com",
+   "title": "async/await vs promise chains in Node.js: which do you use? : r/javascript",
+   "nav": "Skip to main content Open menu Open navigation Go to Reddit Home Get App Log In Expand user menu Home Popular Answers Explore All Communities Resources About Reddit Advertise Help Blog Careers Press",
+   "article": "r/javascript • 5 hr. ago async/await vs promise chains in Node.js: which do you use? Our codebase mixes .then() chains and async functions. Is there any performance difference, and how do you handle errors with Promise.all inside async functions? Upvote 342 Downvote 87 Go to comments Share Sort by: Best No real performance difference, async/await is syntax over promises. Use try/catch around await. Reply Award Share Promise.all rejects on the first error; use Promise.allSettled if you need every result. Reply Award Share Remember the event loop: await yields, so long synchronous loops still block Node. Reply Award Share",
+   "aside": "Community Info Members Online Top 1% Rank by size Moderators Message Mods View all moderators Related communities",
+   "footer": "Reddit Rules Privacy Policy User Agreement Accessibility Reddit, Inc. © 2026. All rights reserved."
+  },
+  "YouTube: lasagna": {
+   "topic": "food",
+   "host": "www.youtube.com",
+   "title": "The BEST Classic Lasagna Bolognese Recipe - YouTube",
+   "nav": "Skip navigation Search Create Home Shorts Subscriptions You History Playlists Watch later Liked videos",
+   "article": "The BEST Classic Lasagna Bolognese Recipe Italian Kitchen 1.4M subscribers Subscribe 48K Share Download Clip Save 2,345,678 views Oct 12, 2026 Layers of slow cooked beef and pork ragù, creamy béchamel, fresh egg pasta sheets and parmigiano reggiano. Ingredients: onion, carrot, celery, tomato passata, red wine, milk, nutmeg. Bake 45 minutes at 180°C. Comments 3,210 Sort by @foodlover 2 weeks ago Made this for Sunday dinner, the béchamel makes it. 1.2K Reply @nonna_rosa 2 weeks ago Ragù needs three hours on low heat, never rush it. 1.2K Reply @chefk 2 weeks ago Fresh pasta sheets instead of dried ones changed everything. 1.2K Reply",
+   "aside": "Up next Autoplay Top 10 Football Goals of 2026 Sky Sports 2.1M views 3 days ago Lofi hip hop radio beats to relax and study to Lofi Girl 54K watching iPhone 18 Pro review after one month MKBHD 4.3M views 1 week ago Funniest cat videos compilation 12M views Learn Spanish in 30 days 900K views",
+   "footer": "About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy & Safety How YouTube works Test new features © 2026 Google LLC"
+  },
+  "YouTube: black holes": {
+   "topic": "space",
+   "host": "www.youtube.com",
+   "title": "What Happens Inside a Black Hole? The Event Horizon Explained - YouTube",
+   "nav": "Skip navigation Search Create Home Shorts Subscriptions You History Playlists Watch later Liked videos",
+   "article": "What Happens Inside a Black Hole? The Event Horizon Explained Cosmos Explained 1.4M subscribers Subscribe 48K Share Download Clip Save 2,345,678 views Oct 12, 2026 We fall past the event horizon of a black hole and look at spaghettification, Hawking radiation, and how general relativity predicts a singularity. Featuring images of M87 and Sagittarius A* from the Event Horizon Telescope. Comments 3,210 Sort by @stargazer 2 weeks ago The animation of light bending around the black hole is incredible. 1.2K Reply @physicsnerd 2 weeks ago Great explanation of why time slows down near the horizon. 1.2K Reply @cosmo_kid 2 weeks ago Sagittarius A* is so much smaller than M87's black hole. 1.2K Reply",
+   "aside": "Up next Autoplay Top 10 Football Goals of 2026 Sky Sports 2.1M views 3 days ago Lofi hip hop radio beats to relax and study to Lofi Girl 54K watching iPhone 18 Pro review after one month MKBHD 4.3M views 1 week ago Funniest cat videos compilation 12M views Learn Spanish in 30 days 900K views",
+   "footer": "About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy & Safety How YouTube works Test new features © 2026 Google LLC"
+  }
+ }
+}
