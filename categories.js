@@ -222,6 +222,25 @@ function busy(docs) {
 
 // --- Drawing ---
 
+// Whether a tab is on the domain the filter box names (any tab, with no filter).
+const onDomain = (t) => domMatch(hostsOf(t.url || ''), S.domain)
+
+// The groups with only the tabs on the filtered domain, leaving out groups
+// with none. The groups themselves are made from every tab, so filtering
+// neither regroups nor renames them.
+function onlyDomain(r) {
+  if (!S.domain) return r
+  const keep = (list) => list.filter((d) => onDomain(d.tab))
+  const categories = []
+  for (const c of r.categories) {
+    const tabs = keep(c.tabs)
+    if (!tabs.length) continue
+    const subgroups = c.subgroups.map((s) => ({ ...s, tabs: keep(s.tabs) })).filter((s) => s.tabs.length)
+    categories.push({ ...c, tabs, subgroups, loose: keep(c.loose) })
+  }
+  return { ...r, categories, rest: keep(r.rest) }
+}
+
 function catRow(d, wins, r, byId) {
   const t = d.tab
   const row = el('div', 'tabhead cattab')
@@ -283,8 +302,9 @@ function saveCollapsed() {
   chrome.storage.local.set({ catCollapsed: keys }).catch(() => {})
 }
 
-function drawCats(r, tabs) {
-  C.mode = r.mode
+function drawCats(all, tabs) {
+  C.mode = all.mode
+  const r = onlyDomain(all)
   showNote()
   showSettings()
   // windows numbered in Chrome's order, for the W1, W2 tags
@@ -295,6 +315,7 @@ function drawCats(r, tabs) {
   const ids = (list) => list.map((d) => [d.id, d.title, d.tab.favIconUrl])
   const what = JSON.stringify([
     r.mode,
+    S.domain,
     r.categories.map((c) => [c.label, ids(c.loose), c.subgroups.map((s) => [s.label, ids(s.tabs)])]),
     ids(r.rest),
     [...r.duplicates.keys()],
@@ -311,7 +332,11 @@ function drawCats(r, tabs) {
     CATS.append(el('div', 'empty', 'No open tabs.'))
     return
   }
-  if (!r.categories.length) {
+  if (S.domain && !r.categories.length && !r.rest.length) {
+    CATS.append(el('div', 'empty', 'No open tab is on ' + S.domain + '.'))
+    return
+  }
+  if (!r.categories.length && !S.domain) {
     CATS.append(el('div', 'empty', 'No two tabs are about the same thing.'))
   }
   const byId = new Map(tabs.map((t) => [t.id, t]))
@@ -376,6 +401,7 @@ async function drawWindows(tabs) {
   }
   const what = JSON.stringify([
     'window',
+    S.domain,
     here,
     tabs.map((t) => [t.id, t.windowId, t.index, t.title, t.favIconUrl]),
     [...duplicates.keys()],
@@ -390,11 +416,18 @@ async function drawWindows(tabs) {
     CATS.append(el('div', 'empty', 'No open tabs.'))
     return
   }
+  const shown = tabs.filter(onDomain)
+  if (!shown.length) {
+    CATS.append(el('div', 'empty', 'No open tab is on ' + S.domain + '.'))
+    return
+  }
   const r = { duplicates }
   const byId = new Map(tabs.map((t) => [t.id, t]))
   const frag = document.createDocumentFragment()
+  // windows keep the numbers they have without a filter
   for (const id of ids) {
-    const mine = tabs.filter((t) => t.windowId === id).sort((a, b) => a.index - b.index)
+    const mine = shown.filter((t) => t.windowId === id).sort((a, b) => a.index - b.index)
+    if (!mine.length) continue
     const sec = el('section', 'group cat win-group')
     const name = 'W' + wins.get(id) + (id === here ? ' (this window)' : '')
     const w = foldable('cathead', name, mine.length, 'w:' + id, 'Window ' + wins.get(id))

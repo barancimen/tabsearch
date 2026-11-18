@@ -553,6 +553,48 @@ await panel.click('#by-subject')
 await panel.waitForSelector('#cats section.cat:not(.win-group)', { timeout: 10000 })
 ok(!(await panel.isHidden('#catopts')) && (await cats()).some((c) => c.name === food.name), 'switching back shows the categories again')
 
+// the domain filter, in both groupings
+const shownTabs = () =>
+  panel.$$eval('#cats section.cat', (secs) =>
+    secs.map((s) => ({
+      name: s.querySelector('.catname').textContent,
+      urls: [...s.querySelectorAll('.cattab .title')].map((t) => t.title),
+    }))
+  )
+const hostOk = (u, d) => {
+  try {
+    const h = new URL(u).hostname
+    return h === d || h.endsWith('.' + d)
+  } catch (e) {
+    return false
+  }
+}
+ok(!(await panel.isHidden('#dom')), 'the domain filter shows in the categories view')
+await panel.fill('#dom', 'localhost')
+await panel.waitForTimeout(CATS_SETTLE)
+let fs1 = await shownTabs()
+p('subject, localhost', fs1)
+ok(fs1.length && fs1.every((c) => c.urls.length && c.urls.every((u) => hostOk(u, 'localhost'))), 'by subject, only tabs on the domain show', JSON.stringify(fs1))
+ok(!fs1.some((c) => c.name === food.name), 'categories with no tab on the domain are hidden')
+await panel.click('#by-window')
+await panel.waitForTimeout(400)
+fs1 = await shownTabs()
+ok(fs1.length === 1 && /^W1/.test(fs1[0].name) && fs1[0].urls.every((u) => hostOk(u, 'localhost')), 'by window, only windows with tabs on the domain show', JSON.stringify(fs1))
+await panel.fill('#dom', '127.0.0.1')
+await panel.waitForTimeout(400)
+fs1 = await shownTabs()
+ok(['W2', 'W3'].every((w) => fs1.some((x) => x.name === w)), 'windows keep their numbers under a filter', JSON.stringify(fs1.map((x) => x.name)))
+await panel.fill('#dom', 'nosuchsite.example')
+await panel.waitForTimeout(400)
+ok(/No open tab is on nosuchsite.example/.test(await text('#cats')), 'a domain with no tabs says so')
+await panel.click('#by-subject')
+await panel.click('#v-search')
+ok((await panel.inputValue('#dom')) === 'nosuchsite.example', 'the filter is the same one Search uses')
+await panel.click('#v-cats')
+await panel.fill('#dom', '')
+await panel.waitForTimeout(CATS_SETTLE)
+ok((await cats()).some((c) => c.name === food.name), 'clearing the filter shows every category again')
+
 // folding: the triangle or the name folds a group, Enter unfolds it
 const folded = (name) =>
   panel.$eval(`#cats section.cat:has(.catname[title="${name}"])`, (s) => ({

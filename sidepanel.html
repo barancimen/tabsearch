@@ -29,18 +29,19 @@
           <button id="re" class="opt" type="button" title="Regular expression">.*</button>
           <span id="count"></span>
         </div>
-        <div class="row">
-          <input
-            id="dom"
-            class="box"
-            type="search"
-            list="doms"
-            placeholder="All domains, or filter to x.com"
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <datalist id="doms"></datalist>
-        </div>
+      </div>
+      <!-- the domain filter serves Search and Categories alike -->
+      <div id="domrow" class="row">
+        <input
+          id="dom"
+          class="box"
+          type="search"
+          list="doms"
+          placeholder="All domains, or filter to x.com"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <datalist id="doms"></datalist>
       </div>
       <div id="catby" class="row" role="radiogroup" aria-label="Group tabs by" hidden>
         <span class="bylabel">Group by</span>

@@ -112,7 +112,8 @@ button.view[aria-selected="true"] {
   margin-left: auto;
 }
 
-#searchbar {
+#searchbar,
+#domrow {
   margin-top: 6px;
 }
 

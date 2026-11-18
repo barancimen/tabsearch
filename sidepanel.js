@@ -784,6 +784,7 @@ DOMAIN.addEventListener('input', () => {
   const go = () => {
     S.domain = normDomain(DOMAIN.value)
     runSearch()
+    if (S.view === 'cats') paintCats()
   }
   if (!DOMAIN.value) go()
   else DOMAIN._t = setTimeout(go, 120)
@@ -846,9 +847,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (!ui || ui.from === ME) return
   const view = S.view
   const by = C.by
+  const domain = S.domain
   applyUi(ui)
   if (S.view !== view) showView()
-  else if (C.by !== by) {
+  else if (C.by !== by || S.domain !== domain) {
     showBy()
     if (S.view === 'cats') paintCats()
   }

@@ -86,6 +86,13 @@ This needs no grouping, so it shows at once, and the model is not loaded for
 it. Duplicates are tabs with the same address. The choice is remembered with
 the rest of the panel's state.
 
+The domain filter box is shared with Search and works the same way, so
+`x.com` also covers its subdomains. By subject, the groups are still made from
+every tab, and only the tabs on the domain are shown, so filtering doesn't
+change the groups or their names. Groups with no tab on the domain are left
+out, and the counts are of the tabs shown. By window, only windows with a tab
+on the domain are shown, under the numbers they have without the filter.
+
 ### The meaning model
 
 Tabs are compared by meaning with MongoDB's
