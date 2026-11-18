@@ -7,6 +7,9 @@
   --line: #b9c0ca;
   --field: #f0f2f5;
   --strip: #e9ecf0;
+  --band: #edf0f4; /* every other section in Windows and Subjects */
+  --head: #dfe3e9; /* group headings, and tab names in Search */
+  --head-hover: #d2d8e0;
   --accent: #1747c9;
   --hit: #ffd84d;
   --warn: #9a3412;
@@ -20,6 +23,9 @@
     --line: #5a626e;
     --field: #22262c;
     --strip: #1b1e23;
+    --band: #1e2228;
+    --head: #2b3038;
+    --head-hover: #353b45;
     --accent: #8ab8ff;
     --hit: #806a00;
     --warn: #fdba74;
@@ -597,3 +603,38 @@ mark {
   display: none;
 }
 
+
+/* Sections alternate between white and a light grey band, so the boundary
+   between two groups is easy to see. Headings sit on a darker grey. */
+#cats > section.cat:nth-of-type(even) {
+  background: var(--band);
+}
+
+.cathead,
+.subhead {
+  background: var(--head);
+}
+
+.cathead {
+  padding: 6px 8px;
+}
+
+.subhead {
+  padding: 3px 8px;
+}
+
+.sub > .catbody {
+  padding-bottom: 2px;
+}
+
+.cattab:hover {
+  background: color-mix(in srgb, var(--head) 55%, transparent);
+}
+
+#results .tabhead {
+  background: var(--head);
+}
+
+#results .tabhead:hover {
+  background: var(--head-hover);
+}

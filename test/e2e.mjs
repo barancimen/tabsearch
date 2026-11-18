@@ -483,6 +483,12 @@ await panel.evaluate(() => (document.querySelector('#results').scrollTop = 0))
 await panel.keyboard.press('PageDown')
 const paged = await panel.evaluate(() => [document.querySelector('#results').scrollTop, document.activeElement.id])
 ok(paged[0] > 0 && paged[1] === 'q', 'Page Down in the search box scrolls the results', JSON.stringify(paged))
+if (process.env.SHOTS) {
+  await panel.setViewportSize({ width: 360, height: 520 })
+  await panel.evaluate(() => (document.querySelector('#results').scrollTop = 0))
+  await panel.screenshot({ path: path.join(process.env.SHOTS, 'results.png') })
+  await panel.setViewportSize({ width: 320, height: 260 })
+}
 await panel.evaluate(() => (document.querySelector('#results').scrollTop = 60))
 
 const panel2 = await ctx.newPage()
