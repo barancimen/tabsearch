@@ -397,6 +397,8 @@ mark {
 }
 
 #modelbox button:disabled {
+  border-color: var(--line);
+  color: var(--dim);
   opacity: 0.6;
   cursor: default;
 }

@@ -313,9 +313,15 @@ function showModel() {
   $('#modelstate').textContent = s
   $('#modelstate').classList.toggle('bad', m.state === 'error')
   if (document.activeElement !== $('#modelfolder')) $('#modelfolder').value = m.folder
-  $('#modeldl').hidden = m.downloaded
-  $('#modeldl').disabled = m.state === 'downloading'
-  $('#modeldl').textContent = m.state === 'downloading' ? 'Downloading' : `Download the model (${Math.round(Model.DOWNLOAD_BYTES / 1e6)} MB)`
+  const dl = $('#modeldl')
+  dl.hidden = m.downloaded
+  // nothing to download while a model is loaded or on its way
+  dl.disabled = m.state === 'ready' || m.state === 'loading' || m.state === 'downloading'
+  dl.textContent = m.state === 'downloading' ? 'Downloading' : `Download the model (${Math.round(Model.DOWNLOAD_BYTES / 1e6)} MB)`
+  dl.title =
+    m.state === 'ready'
+      ? 'The model is already loaded from the folder, so there is nothing to download. To download it instead, empty the folder box and press Use folder.'
+      : "Download the model from Hugging Face and keep it in the extension's storage. Only the model's files are fetched. Nothing about your tabs is sent."
   $('#modelrm').hidden = !m.downloaded
   showNote()
 }
