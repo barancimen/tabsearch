@@ -171,7 +171,7 @@ async function embedMissing() {
 }
 
 function scheduleCats() {
-  if (S.view !== 'cats' || C.timer) return
+  if (S.view === 'search' || C.timer) return
   C.timer = setTimeout(() => {
     C.timer = 0
     paintCats()
@@ -444,30 +444,13 @@ async function drawWindows(tabs) {
   }
 }
 
-// Shows the Subject or Window choice, and the controls that go with it.
-function showBy() {
-  const cats = S.view === 'cats'
-  const subject = C.by === 'subject'
-  for (const [id, on] of [['#by-subject', subject], ['#by-window', !subject]]) {
-    $(id).classList.toggle('on', on)
-    $(id).setAttribute('aria-checked', String(on))
-  }
-  // the model and the sliders only matter when grouping by subject
-  $('#catopts').hidden = !cats || !subject
-  $('#catnote').hidden = !cats || !subject
+// The model, the sliders and the note on how tabs were grouped only matter
+// in Subjects.
+function showCatControls() {
+  const subjects = S.view === 'subjects'
+  $('#catopts').hidden = !subjects
+  $('#catnote').hidden = !subjects
 }
-
-function setBy(by) {
-  if (C.by === by) return
-  C.by = by
-  showBy()
-  CATS.scrollTop = 0
-  saveUi()
-  paintCats()
-}
-
-$('#by-subject').addEventListener('click', () => setBy('subject'))
-$('#by-window').addEventListener('click', () => setBy('window'))
 
 // --- The model ---
 
@@ -583,7 +566,7 @@ function showSettings() {
 
 // Regroups shortly after a setting changes, at most once per this many ms.
 function regroup() {
-  if (C.regroupT || S.view !== 'cats') return
+  if (C.regroupT || S.view === 'search') return
   C.regroupT = setTimeout(() => {
     C.regroupT = 0
     paintCats()

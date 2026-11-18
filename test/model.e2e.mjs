@@ -107,7 +107,7 @@ await panel.goto(`chrome-extension://${id}/sidepanel.html`)
 await panel.evaluate((urls) => chrome.windows.create({ url: urls }), win(['/s/3', '/s/4', '/s/5', '/w/1']))
 await panel.waitForFunction(() => S.cache.size >= 8, null, { timeout: 30000, polling: 250 })
 await panel.bringToFront()
-await panel.click('#v-cats')
+await panel.click('#v-subjects')
 await panel.waitForSelector('#cats section.cat', { timeout: 10000 })
 ok(/Not set up/.test(await panel.textContent('#modelstate')), 'the model starts not set up', await panel.textContent('#modelstate'))
 

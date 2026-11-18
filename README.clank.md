@@ -2,7 +2,8 @@
 
 Chrome extension (Manifest V3) that searches the rendered text of every open
 tab at once, including PDFs. Click a result to switch to the owning tab and
-reveal the match. A second view, Categories, groups the open tabs by subject.
+reveal the match. Two more tabs list the open tabs by window and group them by
+subject.
 
 ## Install
 
@@ -13,15 +14,21 @@ reveal the match. A second view, Categories, groups the open tabs by subject.
 
 ## Use
 
-Type in the box. Results are grouped by tab, busiest tab first, with the match
-highlighted in a snippet of surrounding text.
+The panel has three tabs along the top: Search, Windows and Subjects. Under
+them is the domain filter, which all three share, and in Search the search box
+below it. Opening the panel puts the cursor in the search box, or the focus on
+the list in Windows and Subjects, so you can type or press Page Down at once.
+Page Down and Page Up scroll the list even while the cursor is in a box.
+
+Type in the search box. Results are grouped by tab, busiest tab first, with
+the match highlighted in a snippet of surrounding text.
 
 | Control | Effect |
 | --- | --- |
 | `Aa` | Match case |
 | `Word` | Whole word only |
 | `.*` | Treat the query as a regular expression |
-| `Reindex` | Re-read every tab, except suspended tabs that already have saved text |
+| `↻` (Reindex) | Re-read every tab, except suspended tabs that already have saved text |
 | `Up` / `Down` | Move through results |
 | `Enter` | Open the selected result (or the first one) |
 | `N not searchable` | Expand the list of tabs that could not be searched, and why |
@@ -31,8 +38,10 @@ Mode toggles persist across sessions.
 
 ### Filter by domain
 
-The second field narrows the search to tabs on one site. It autocompletes from
-the domains of your open tabs.
+The domain field narrows the search to tabs on one site. As you type, a list as
+wide as the field offers the domains of your open tabs with how many tabs each
+has. Pick one with the mouse, or with the arrow keys and Enter. Escape closes
+the list and keeps what you typed.
 
 | You type | Matches |
 | --- | --- |
@@ -57,9 +66,15 @@ searchable" list, the selected result and the scroll position. Panels open in
 several windows at once follow each other's query, filter, toggles and list. The
 state is kept in `chrome.storage.local`, so it also survives a browser restart.
 
-## Categories
+## Windows and Subjects
 
-The Categories view lists every open tab grouped by subject, across all
+The Windows tab lists every open tab window by window. Each window is a
+foldable section named W1, W2, ... in the order Chrome numbers them, with its
+tabs in tab strip order, and the panel's own window marked "(this window)".
+This needs no grouping, so it shows at once, and the model is not loaded for
+it. Duplicates are tabs with the same address.
+
+The Subjects tab lists every open tab grouped by subject, across all
 windows. Large categories are split into subgroups when they fall into two or
 more of them, and tabs in no subgroup are listed under "Other". Tabs that
 resemble no other tab are listed last under "Unlike the others", along with
@@ -79,18 +94,13 @@ in "(3) Home / X", is ignored, so a notification doesn't count as a change.
 A line above the groups says how they were made: by meaning, with the model
 below, or by the words the tabs share, when the model is not set up.
 
-"Group by" switches between subjects and windows. By window, each window is a
-foldable section named W1, W2, ... in the order Chrome numbers them, with its
-tabs in tab strip order, and the panel's own window marked "(this window)".
-This needs no grouping, so it shows at once, and the model is not loaded for
-it. Duplicates are tabs with the same address. The choice is remembered with
-the rest of the panel's state.
+The tab you were on is remembered with the rest of the panel's state.
 
-The domain filter box is shared with Search and works the same way, so
-`x.com` also covers its subdomains. By subject, the groups are still made from
+The domain filter works in both tabs as it does in Search, so `x.com` also
+covers its subdomains. In Subjects, the groups are still made from
 every tab, and only the tabs on the domain are shown, so filtering doesn't
 change the groups or their names. Groups with no tab on the domain are left
-out, and the counts are of the tabs shown. By window, only windows with a tab
+out, and the counts are of the tabs shown. In Windows, only windows with a tab
 on the domain are shown, under the numbers they have without the filter.
 
 ### The meaning model
@@ -112,7 +122,7 @@ The model's files are not part of the extension. Under Adjustments you either:
   repository at a fixed commit and are kept in the extension's own storage
   until you remove them. The requests carry nothing about your tabs.
 
-The model is loaded the first time the Categories view is shown. Each tab is
+The model is loaded the first time the Subjects tab is shown. Each tab is
 read from its title, then the page's own content, cut to the model's limit of
 512 tokens. The page's own content is the text of its outermost `<article>`
 elements, or else of `<main>`, with the meta description in front, so a post
@@ -160,7 +170,7 @@ showing, and the list is redrawn only when the groups change.
 
 ### Adjustments
 
-Adjustments, under the view buttons in Categories, holds the model controls
+Adjustments, under the domain filter in Subjects, holds the model controls
 and four sliders. Each slider regroups the tabs as it moves and has a
 description on hover. A moved slider shows a *default* button, and *Set all to
 default* resets them all. Meaning and words measure resemblance on different
@@ -275,7 +285,7 @@ default policy.
     cluster.js         groups tabs by subject and picks words to name the groups
     model.js           finds, downloads and loads the meaning model
     embed-worker.js    runs the model away from the panel's page
-    categories.js      the Categories view
+    categories.js      the Windows and Subjects tabs
     vendor/pdfjs/      pdf.js, used to read PDF text
     vendor/ort/        onnxruntime-web, runs the model
     vendor/tokenizers/ Hugging Face's tokenizer for JavaScript
@@ -291,7 +301,7 @@ default policy.
 Boots a real Chromium with the extension loaded, serves pages and PDFs with
 known text on four loopback hostnames (`127.0.0.1`, `localhost`,
 `foo.localhost`, `[::1]`), suspends some of the tabs, drives the side panel, and
-asserts on the rendered results. For Categories it opens Wikipedia articles in
+asserts on the rendered results. For Windows and Subjects it opens Wikipedia articles in
 two windows that mix subjects, and moves the Adjustments sliders.
 `npm run test:unit` runs only the clustering test, in a few seconds. It groups
 the 20 fixture pages by words and by meaning, using the vectors in

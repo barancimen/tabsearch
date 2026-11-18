@@ -3,7 +3,7 @@
 const $ = (id) => document.querySelector(id)
 const Q = $('#q')
 const DOMAIN = $('#dom')
-const DOMS = $('#doms')
+const DOMLIST = $('#domlist')
 const RESULTS = $('#results')
 const COUNT = $('#count')
 const STATUS = $('#status')
@@ -36,7 +36,7 @@ const S = {
   sel: -1,
   pending: null, // saved selection and scroll, applied by the first paint with results
   painted: '', // what the results on screen are for
-  view: 'search', // or 'cats'
+  view: 'search', // or 'windows' or 'subjects'
 }
 
 // Tells this panel's saves apart from those of the panels in other windows.
@@ -91,7 +91,6 @@ function saveUi(now) {
       view: S.view,
       catsScroll: C.pendingScroll != null ? C.pendingScroll : CATS.scrollTop,
       catOpts: $('#catopts').open,
-      catBy: C.by,
     }
     chrome.storage.local.set({ ui }).catch(() => {})
   }
@@ -109,23 +108,30 @@ function applyUi(ui) {
   if (ui.mode) Object.assign(S.mode, ui.mode)
   for (const k of ['cs', 'ww', 're']) $('#' + k).classList.toggle('on', !!S.mode[k])
   S.badOpen = !!ui.badOpen
-  S.view = ui.view === 'cats' ? 'cats' : 'search'
+  // "cats" is the one view that versions before Windows and Subjects had
+  if (ui.view === 'cats') S.view = ui.catBy === 'window' ? 'windows' : 'subjects'
+  else S.view = ['windows', 'subjects'].includes(ui.view) ? ui.view : 'search'
   $('#catopts').open = !!ui.catOpts
-  C.by = ui.catBy === 'window' ? 'window' : 'subject'
 }
 
-// Shows the Search or the Categories view, whichever S.view says.
+// Shows the Search, Windows or Subjects view, whichever S.view says.
 function showView(draw = true) {
-  const cats = S.view === 'cats'
-  $('#v-search').setAttribute('aria-selected', String(!cats))
-  $('#v-cats').setAttribute('aria-selected', String(cats))
+  const cats = S.view !== 'search'
+  for (const v of ['search', 'windows', 'subjects']) $('#v-' + v).setAttribute('aria-selected', String(v === S.view))
+  C.by = S.view === 'windows' ? 'window' : 'subject'
   SEARCHBAR.hidden = cats
-  $('#catby').hidden = !cats
-  showBy()
   RESULTS.hidden = cats
   CATS.hidden = !cats
+  showCatControls()
   if (cats && draw) paintCats()
-  if (!cats) Q.focus()
+  focusView()
+}
+
+// The search box in Search, the list in the other views, so typing or Page
+// Down works at once.
+function focusView() {
+  if (S.view === 'search') Q.focus()
+  else CATS.focus({ preventScroll: true })
 }
 
 function paintStatus(s) {
@@ -612,16 +618,76 @@ function snippet(text, i, len) {
   )
 }
 
+// The domains of the indexed tabs, offered under the domain filter box in a
+// list exactly as wide as the box (a <datalist> popup's width can't be set).
+const D = { all: [], items: [], active: -1, picking: false }
+
 function paintDomains() {
-  const seen = new Set()
-  for (const r of S.cache.values()) if (r.hostname) seen.add(r.hostname)
-  DOMS.textContent = ''
-  for (const h of [...seen].sort()) {
-    const opt = document.createElement('option')
-    opt.value = h
-    DOMS.append(opt)
-  }
+  const count = new Map()
+  for (const r of S.cache.values()) if (r.hostname) count.set(r.hostname, (count.get(r.hostname) || 0) + 1)
+  D.all = [...count].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+  if (!DOMLIST.hidden) showDomains()
 }
+
+function showDomains() {
+  const f = normDomain(DOMAIN.value)
+  D.items = D.all.filter(([h]) => !f || h.includes(f))
+  if (!D.items.length) return hideDomains()
+  D.active = Math.min(D.active, D.items.length - 1)
+  DOMLIST.textContent = ''
+  D.items.forEach(([h, n], i) => {
+    const li = el('li', i === D.active ? 'active' : '')
+    li.id = 'dom-' + i
+    li.setAttribute('role', 'option')
+    li.setAttribute('aria-selected', String(i === D.active))
+    li.append(el('span', 'h', h), el('span', 'n', n + (n === 1 ? ' tab' : ' tabs')))
+    // keeps the focus in the box, so the list does not close before the click
+    li.addEventListener('mousedown', (e) => e.preventDefault())
+    li.addEventListener('click', () => pickDomain(h))
+    DOMLIST.append(li)
+  })
+  DOMLIST.hidden = false
+  DOMAIN.setAttribute('aria-expanded', 'true')
+  if (D.active >= 0) {
+    DOMAIN.setAttribute('aria-activedescendant', 'dom-' + D.active)
+    $('#dom-' + D.active).scrollIntoView({ block: 'nearest' })
+  } else DOMAIN.removeAttribute('aria-activedescendant')
+}
+
+function hideDomains() {
+  DOMLIST.hidden = true
+  D.active = -1
+  DOMAIN.setAttribute('aria-expanded', 'false')
+  DOMAIN.removeAttribute('aria-activedescendant')
+}
+
+function pickDomain(h) {
+  DOMAIN.value = h
+  hideDomains()
+  D.picking = true
+  DOMAIN.dispatchEvent(new Event('input'))
+  D.picking = false
+}
+
+DOMAIN.addEventListener('focus', showDomains)
+DOMAIN.addEventListener('blur', hideDomains)
+DOMAIN.addEventListener('keydown', (e) => {
+  const open = !DOMLIST.hidden
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    if (!open) return showDomains()
+    const n = D.items.length
+    D.active = e.key === 'ArrowDown' ? (D.active + 1) % n : (D.active <= 0 ? n : D.active) - 1
+    showDomains()
+  } else if (e.key === 'Enter' && open && D.active >= 0) {
+    e.preventDefault()
+    pickDomain(D.items[D.active][0])
+  } else if (e.key === 'Escape' && open) {
+    // closes the list without clearing the box, as a search box would
+    e.preventDefault()
+    hideDomains()
+  }
+})
 
 function paint() {
   // A repaint of the same search keeps the selected result and the scroll position.
@@ -779,12 +845,16 @@ Q.addEventListener('input', () => {
 })
 
 DOMAIN.addEventListener('input', () => {
+  if (!D.picking && document.activeElement === DOMAIN) {
+    D.active = -1
+    showDomains()
+  }
   saveUi()
   clearTimeout(DOMAIN._t)
   const go = () => {
     S.domain = normDomain(DOMAIN.value)
     runSearch()
-    if (S.view === 'cats') paintCats()
+    if (S.view !== 'search') paintCats()
   }
   if (!DOMAIN.value) go()
   else DOMAIN._t = setTimeout(go, 120)
@@ -810,17 +880,25 @@ $('#refresh').addEventListener('click', () => {
   indexAll(true)
 })
 
-for (const [view, id] of [
-  ['search', '#v-search'],
-  ['cats', '#v-cats'],
-]) {
-  $(id).addEventListener('click', () => {
+for (const view of ['search', 'windows', 'subjects']) {
+  $('#v-' + view).addEventListener('click', () => {
     if (S.view === view) return
+    // Windows and Subjects share the list, which starts at the top for each
+    if (S.view !== 'search' && view !== 'search') CATS.scrollTop = 0
     S.view = view
     saveUi()
     showView()
   })
 }
+
+// Page Down and Page Up scroll the list even while the cursor is in a box.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'PageDown' && e.key !== 'PageUp') return
+  const list = S.view === 'search' ? RESULTS : CATS
+  if (list.contains(e.target)) return // the list scrolls itself
+  e.preventDefault()
+  list.scrollBy({ top: (e.key === 'PageDown' ? 1 : -1) * Math.max(40, list.clientHeight - 40) })
+})
 
 document.addEventListener('keydown', (e) => {
   if (S.view !== 'search') return
@@ -846,14 +924,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
   const ui = area === 'local' && changes.ui && changes.ui.newValue
   if (!ui || ui.from === ME) return
   const view = S.view
-  const by = C.by
   const domain = S.domain
   applyUi(ui)
   if (S.view !== view) showView()
-  else if (C.by !== by || S.domain !== domain) {
-    showBy()
-    if (S.view === 'cats') paintCats()
-  }
+  else if (S.domain !== domain && S.view !== 'search') paintCats()
   if (!S.indexing) paintSummary()
   runSearch()
 })
@@ -901,6 +975,9 @@ chrome.tabs.onReplaced.addListener((added, removed) => {
     S.pending = { sel: saved.sel || '', scroll: saved.scroll || 0 }
     C.pendingScroll = saved.catsScroll || 0
   } catch (e) {}
+  // Chrome 148 and later let a side panel take the focus when it opens, so
+  // the search box, or the list, is ready for typing or Page Down at once
+  window.focus()
   // the first grouping waits for the saved index, so it is not done on titles alone
   showView(false)
   // with a saved query, the first paint waits for the saved index
