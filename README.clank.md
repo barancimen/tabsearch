@@ -14,10 +14,11 @@ subject.
 
 ## Use
 
-The panel has four tabs along the top: Search, Windows, Subjects and Live.
+The panel has four tabs along the top: Search, Windows, Subjects and Active.
 Under them is the domain filter, which all four share, and in Search the search
 box below it. Opening the panel puts the cursor in the search box, or the focus
 on the list in the other tabs, so you can type or press Page Down at once.
+The chosen tab is underlined in black, or in white for Active.
 Page Down and Page Up scroll the list even while the cursor is in a box.
 
 Type in the search box. Results are grouped by tab, busiest tab first, with
@@ -66,9 +67,9 @@ searchable" list, the selected result and the scroll position. Panels open in
 several windows at once follow each other's query, filter, toggles and list. The
 state is kept in `chrome.storage.local`, so it also survives a browser restart.
 
-## Live, Windows and Subjects
+## Windows, Subjects and Active
 
-The Live tab, bright green with white text while chosen, lists every other tab by how alike it
+The Active tab, bright green with white text while chosen, lists every other tab by how alike it
 is to the tab you are looking at in the panel's window, most alike first, with
 a score from 0 to 1. It follows you as you switch tabs. Tabs are compared by
 meaning once the model is set up (see below) and by the words they share until

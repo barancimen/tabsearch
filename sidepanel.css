@@ -11,7 +11,7 @@
   --head-strong: #c5ccd6; /* category headings in Subjects */
   --rule: #000000; /* the line between two categories in Subjects */
   --live: #22c55e; /* the Live tab when chosen */
-  --live-edge: #15803d;
+  --live-edge: #ffffff; /* the line under the Live tab */
   --on-live: #ffffff;
   --head-hover: #d2d8e0;
   --accent: #1747c9;
@@ -124,8 +124,9 @@ button.opt.on {
 
 button.view {
   margin: 0 0 -1px;
-  padding: 9px 7px 8px;
+  padding: 9px 6px 8px;
   border: 0;
+  font-size: 13.5px;
   border-right: 1px solid var(--line);
   border-radius: 0;
   background: none;
@@ -143,7 +144,7 @@ button.view:hover {
 button.view[aria-selected="true"] {
   background: var(--bg);
   color: var(--fg);
-  box-shadow: inset 0 -3px 0 var(--accent);
+  box-shadow: inset 0 -3px 0 var(--rule);
 }
 
 #v-live[aria-selected="true"] {
@@ -160,8 +161,8 @@ button.view:focus-visible {
 #refresh {
   flex: none;
   align-self: center;
-  margin: 0 4px 0 auto;
-  padding: 1px 6px 3px;
+  margin: 0 3px 0 auto;
+  padding: 1px 5px 3px;
   font-size: 17px;
   line-height: 1.2;
 }
