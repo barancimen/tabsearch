@@ -29,6 +29,7 @@ the match highlighted in a snippet of surrounding text.
 | `Word` | Whole word only |
 | `.*` | Treat the query as a regular expression |
 | `↻` (Reindex) | Re-read every tab, except suspended tabs that already have saved text |
+| `⊘` | Open the list of excluded domains (see below) |
 | `Up` / `Down` | Move through results |
 | `Enter` | Open the selected result (or the first one) |
 | `N not searchable` | Expand the list of tabs that could not be searched, and why |
@@ -57,6 +58,24 @@ carry a port. The filter is matched against the tab's own URL, so text a page
 pulls in from an embedded frame on another origin is attributed to the tab you
 are looking at. The filter is kept with the rest of the panel's state (see
 below), and the count says `on x.com` while it applies.
+
+### Excluded domains
+
+The `⊘` button next to Reindex opens a list of domains whose tabs the extension
+never reads. Type a domain and press Enter or Exclude, and press Remove to take
+one off. Domains are written the way the domain filter takes them, so `x.com`
+also covers its subdomains, and `https://www.x.com/home` is saved as `x.com`.
+
+Tabs on an excluded domain are not read, downloaded or embedded, and any saved
+text, word counts and vectors they had are deleted at once. They are left out
+of Search, are listed under `N not searchable` as "Excluded", and are listed
+apart in Subjects ("Unlike the others") and Active ("Not compared"). Windows
+still lists them. Removing a domain reads its tabs straight away.
+
+There is one list, shared by the panels of every window, which update together
+when it changes. It is kept in `chrome.storage.local`, which survives browser
+restarts and reloading or updating the extension. Removing the extension from
+Chrome deletes it, along with the rest of the extension's data.
 
 ### Panel state
 
@@ -303,7 +322,7 @@ default policy.
     cluster.js         groups tabs by subject and picks words to name the groups
     model.js           finds, downloads and loads the meaning model
     embed-worker.js    runs the model away from the panel's page
-    categories.js      the Windows and Subjects tabs
+    categories.js      the Windows, Subjects and Active tabs
     vendor/pdfjs/      pdf.js, used to read PDF text
     vendor/ort/        onnxruntime-web, runs the model
     vendor/tokenizers/ Hugging Face's tokenizer for JavaScript
@@ -311,6 +330,7 @@ default policy.
     test/e2e.mjs       end to end test
     test/cluster.test.mjs   unit test for cluster.js, plain Node
     test/model.e2e.mjs end to end test of grouping by meaning with the real model
+    test/exclude.e2e.mjs    end to end test of the excluded domains list
     test/make-vectors.py    makes the model vectors the unit test uses
     test/fixtures/     Wikipedia articles, made-up social media pages, and their vectors
 
@@ -321,6 +341,11 @@ known text on four loopback hostnames (`127.0.0.1`, `localhost`,
 `foo.localhost`, `[::1]`), suspends some of the tabs, drives the side panel, and
 asserts on the rendered results. For Windows and Subjects it opens Wikipedia articles in
 two windows that mix subjects, and moves the Adjustments sliders.
+`test/exclude.e2e.mjs` checks the excluded domains list on its own, in under a
+minute: that excluding a domain from one panel stops every panel searching and
+saving its tabs, and that the list survives an extension reload and a browser
+restart. `npm run test:exclude` runs it.
+
 `npm run test:unit` runs only the clustering test, in a few seconds. It groups
 the 20 fixture pages by words and by meaning, using the vectors in
 `test/fixtures/vectors.json`, under three window layouts, and checks what each

@@ -122,8 +122,9 @@ button.opt.on {
 
 button.view {
   margin: 0 0 -1px;
-  /* roomy in a normal panel, down to 6px only near Chrome's narrowest, 320px */
-  padding: 9px clamp(6px, 4vw - 7px, 18px) 8px;
+  /* roomy in a normal panel, down to 3px only near Chrome's narrowest, 320px,
+     where the four tabs, the excluded domains button and Reindex just fit */
+  padding: 9px clamp(3px, 5.5vw - 14.6px, 18px) 8px;
   border: 0;
   font-size: 13.5px;
   border-right: 1px solid var(--line);
@@ -153,13 +154,81 @@ button.view:focus-visible {
   outline-offset: -2px;
 }
 
-#refresh {
+#refresh,
+#exclude {
   flex: none;
   align-self: center;
-  margin: 0 3px 0 auto;
+  margin: 0 3px 0 2px;
   padding: 1px 5px 3px;
   font-size: 17px;
   line-height: 1.2;
+}
+
+/* quieter than Reindex: no border until hovered or open */
+#exclude {
+  margin-left: auto;
+  padding-right: 3px;
+  padding-left: 3px;
+  border-color: transparent;
+  background: none;
+  color: var(--dim);
+}
+
+#exclude:hover,
+#exclude[aria-expanded="true"] {
+  border-color: var(--line);
+  color: var(--fg);
+}
+
+#exbox {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+#exbox .box,
+#exbox .row button {
+  font-size: 13px;
+}
+
+#exlist {
+  max-height: 30vh;
+  margin: 4px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+#exlist li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+}
+
+#exlist li:hover {
+  background: var(--field);
+}
+
+#exlist .h {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+#exlist button {
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+#exlist .none {
+  color: var(--dim);
+}
+
+#exnote {
+  margin-top: 4px;
+  color: var(--dim);
 }
 
 #searchbar,

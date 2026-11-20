@@ -96,8 +96,10 @@ const vecKey = (t) => Model.M.key + '\n' + EMBED_VERSION + '\n' + plainTitle(t)
 
 // Browser pages and blank tabs with no text are not grouped: their titles say
 // nothing about a subject. Tabs that could not be read but are web pages, such
-// as suspended ones, are grouped on their titles.
-const skipTab = (t) => !S.cache.has(t.id) && (!t.title || !/^(https?|file):/i.test(t.url || ''))
+// as suspended ones, are grouped on their titles. Tabs on an excluded domain
+// are not grouped or embedded at all, not even by title.
+const skipTab = (t) =>
+  isExcluded(t.url) || (!S.cache.has(t.id) && (!t.title || !/^(https?|file):/i.test(t.url || '')))
 
 // A tab's vector from the model, if it has one for its current title.
 function vecFor(t) {
@@ -522,6 +524,7 @@ async function drawLive(tabs) {
   const target = docs.find((d) => d.id === id)
   let message = ''
   if (!target) message = 'Switch to a web page to see the tabs most like it.'
+  else if (isExcluded(target.url)) message = "This tab's domain is excluded, so it is not compared with other tabs."
   else if (target.skip) message = 'This tab has no text to compare. Switch to a web page to see the tabs most like it.'
   let pool = docs.filter((d) => !d.skip)
   let pending = []
@@ -596,7 +599,7 @@ async function drawLive(tabs) {
   }
   for (const [list, name, key, help] of [
     [waiting, 'Still being read', 'live-pending', 'Tabs the model has not read yet. They join the list as it reads them.'],
-    [skipped, 'Not compared', 'live-skip', 'Browser pages and blank tabs, which have no text to compare'],
+    [skipped, 'Not compared', 'live-skip', 'Browser pages and blank tabs, which have no text to compare, and tabs on excluded domains'],
   ]) {
     if (!list.length) continue
     const sec = el('section', 'group cat rest')

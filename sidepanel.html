@@ -12,8 +12,26 @@
         <button id="v-windows" class="view" type="button" role="tab" aria-selected="false" aria-controls="cats">Windows</button>
         <button id="v-subjects" class="view" type="button" role="tab" aria-selected="false" aria-controls="cats">Subjects</button>
         <button id="v-live" class="view" type="button" role="tab" aria-selected="false" aria-controls="cats" title="Every tab, most like the active tab first">Active</button>
+        <button id="exclude" type="button" title="Excluded domains" aria-label="Excluded domains" aria-expanded="false" aria-controls="exbox">⊘</button>
         <button id="refresh" type="button" title="Reindex: read every tab again" aria-label="Reindex">↻</button>
       </nav>
+      <!-- one list for every window's panel, kept in chrome.storage.local -->
+      <div id="exbox" hidden>
+        <div class="row">
+          <input
+            id="exadd"
+            class="box"
+            type="text"
+            placeholder="Add a domain, such as bank.com"
+            aria-label="Domain to exclude"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button id="exaddbtn" type="button">Exclude</button>
+        </div>
+        <ul id="exlist" aria-label="Excluded domains"></ul>
+        <div id="exnote">Tabs on these domains are never read or saved, so they are left out of Search, Subjects and Active. A domain such as x.com also covers its subdomains.</div>
+      </div>
       <!-- the domain filter serves every view, and keeps its text across them -->
       <div id="domrow" class="combo">
         <input

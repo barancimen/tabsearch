@@ -38,6 +38,7 @@ const S = {
   pending: null, // saved selection and scroll, applied by the first paint with results
   painted: '', // what the results on screen are for
   view: 'search', // or 'live', 'windows' or 'subjects'
+  excluded: [], // domains whose tabs are never read, as normDomain() writes them
 }
 
 // Tells this panel's saves apart from those of the panels in other windows.
@@ -150,7 +151,9 @@ function load(t) {
 }
 
 function whyNot(t) {
-  return canInject(t.url) ? S.failed.get(t.id) || '' : 'Restricted by Chrome'
+  if (!canInject(t.url)) return 'Restricted by Chrome'
+  if (isExcluded(t.url)) return 'Excluded'
+  return S.failed.get(t.id) || ''
 }
 
 function paintBad(bad) {
@@ -250,6 +253,14 @@ function domMatch(rec, f) {
     if (h && (h === f || h.endsWith('.' + f))) return true
   }
   return false
+}
+
+// Whether a URL is on a domain in the excluded list. Matches as the domain
+// filter does, so x.com also covers its subdomains.
+function isExcluded(url) {
+  if (!S.excluded.length) return false
+  const h = hostsOf(url || '')
+  return S.excluded.some((f) => domMatch(h, f))
 }
 
 /* Runs inside each page and each of its frames. Self contained. */
@@ -382,6 +393,8 @@ function decode(xhr) {
 
 // main: the page's own content for grouping, or '' to group on the whole text
 function saveTab(t, text, main = '') {
+  // the domain may have been excluded while the tab was being read
+  if (isExcluded(t.url)) return
   const rec = {
     tabId: t.id,
     windowId: t.windowId,
@@ -433,6 +446,12 @@ async function readAsleep(t) {
 
 async function readTab(t) {
   if (t.id == null || !canInject(t.url)) return
+  if (isExcluded(t.url)) {
+    S.cache.delete(t.id)
+    S.failed.delete(t.id)
+    dbDel(t.id)
+    return
+  }
   if (isAsleep(t)) {
     if (!S.cache.has(t.id)) await readAsleep(t)
     return
@@ -513,10 +532,11 @@ async function indexAll(full) {
   S.indexing = true
   const run = ++S.run
   const tabs = (await chrome.tabs.query({})).filter((t) => t.id != null)
-  const targets = tabs.filter((t) => canInject(t.url))
+  // restore() drops the saved records of tabs left out here
+  const targets = tabs.filter((t) => canInject(t.url) && !isExcluded(t.url))
   if (full) {
     // a suspended tab cannot be read again, so its text is kept
-    const asleep = new Set(tabs.filter(isAsleep).map((t) => t.id))
+    const asleep = new Set(targets.filter(isAsleep).map((t) => t.id))
     for (const id of S.cache.keys()) if (!asleep.has(id)) S.cache.delete(id)
     S.failed.clear()
   }
@@ -883,6 +903,87 @@ $('#refresh').addEventListener('click', () => {
   indexAll(true)
 })
 
+// --- Excluded domains ---
+// One list for every window's panel, kept in chrome.storage.local. Unlike the
+// index, nothing clears it at a browser start or an extension reload. Every
+// change goes through storage, and each panel, this one included, applies it
+// in setExcluded() when storage says it changed.
+
+const EXBTN = $('#exclude')
+const EXBOX = $('#exbox')
+const EXADD = $('#exadd')
+const EXLIST = $('#exlist')
+
+function saveExcluded(list) {
+  chrome.storage.local.set({ excluded: list }).catch(() => {})
+}
+
+function paintExcluded() {
+  const n = S.excluded.length
+  EXBTN.title = n ? 'Excluded domains (' + n + ')' : 'Excluded domains'
+  EXLIST.textContent = ''
+  if (!n) EXLIST.append(el('li', 'none', 'No domains are excluded.'))
+  for (const f of S.excluded) {
+    const li = el('li')
+    const rm = el('button', '', 'Remove')
+    rm.type = 'button'
+    rm.title = 'Read tabs on ' + f + ' again'
+    rm.addEventListener('click', () => saveExcluded(S.excluded.filter((x) => x !== f)))
+    li.append(el('span', 'h', f), rm)
+    EXLIST.append(li)
+  }
+}
+
+function setExcluded(list) {
+  const before = S.excluded
+  S.excluded = Array.isArray(list) ? list.filter((f) => typeof f === 'string' && f) : []
+  paintExcluded()
+  for (const [id, rec] of S.cache) {
+    if (!isExcluded(rec.url)) continue
+    S.cache.delete(id)
+    dbDel(id)
+  }
+  if (before.some((f) => !S.excluded.includes(f))) {
+    // tabs on a domain taken off the list are read now
+    S.run++
+    S.indexing = false
+    indexAll()
+  } else {
+    refresh()
+  }
+}
+
+function addExcluded() {
+  const f = normDomain(EXADD.value)
+  if (!f || /\s/.test(f)) return
+  EXADD.value = ''
+  if (!S.excluded.includes(f)) saveExcluded([...S.excluded, f].sort())
+}
+
+function showExBox(open) {
+  EXBOX.hidden = !open
+  EXBTN.setAttribute('aria-expanded', String(open))
+  if (open) EXADD.focus()
+}
+
+EXBTN.addEventListener('click', () => {
+  showExBox(EXBOX.hidden)
+  if (EXBOX.hidden) focusView()
+})
+$('#exaddbtn').addEventListener('click', addExcluded)
+EXADD.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    addExcluded()
+  }
+})
+EXBOX.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return
+  e.preventDefault()
+  showExBox(false)
+  EXBTN.focus()
+})
+
 for (const view of VIEWS) {
   $('#v-' + view).addEventListener('click', () => {
     if (S.view === view) return
@@ -905,7 +1006,7 @@ document.addEventListener('keydown', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (S.view !== 'search') return
-  if (e.target === DOMAIN || e.target.closest('#status, #bad')) return
+  if (e.target === DOMAIN || e.target.closest('#status, #bad, #exbox')) return
   if (e.key === 'Enter' && S.flat.length) {
     e.preventDefault()
     jump(S.sel >= 0 ? S.sel : 0)
@@ -924,6 +1025,7 @@ addEventListener('pagehide', () => saveUi(true))
 
 // A change made in the panel of another window shows up here too.
 chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.excluded) setExcluded(changes.excluded.newValue)
   const ui = area === 'local' && changes.ui && changes.ui.newValue
   if (!ui || ui.from === ME) return
   const view = S.view
@@ -972,12 +1074,15 @@ chrome.tabs.onReplaced.addListener((added, removed) => {
   }
   try {
     // "mode" is where versions before the saved panel state kept the options
-    const { ui, mode } = await chrome.storage.local.get(['ui', 'mode'])
+    const { ui, mode, excluded } = await chrome.storage.local.get(['ui', 'mode', 'excluded'])
+    // set straight, not through setExcluded(), as nothing is indexed yet
+    if (Array.isArray(excluded)) S.excluded = excluded.filter((f) => typeof f === 'string' && f)
     const saved = ui || { mode }
     applyUi(saved)
     S.pending = { sel: saved.sel || '', scroll: saved.scroll || 0 }
     C.pendingScroll = saved.catsScroll || 0
   } catch (e) {}
+  paintExcluded()
   // Chrome 148 and later let a side panel take the focus when it opens, so
   // the search box, or the list, is ready for typing or Page Down at once
   window.focus()
